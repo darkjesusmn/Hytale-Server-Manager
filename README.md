@@ -1,4 +1,4 @@
-INSERT INTO readmes (project_name, content) VALUES (
+
     'Hytale Server Manager',
     $README$
 # Hytale Server Manager
