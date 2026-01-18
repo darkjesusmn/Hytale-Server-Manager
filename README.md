@@ -1,61 +1,120 @@
-# Hytale Server Manager
+Hytale Server Manager
 
-A **PowerShell-based GUI** for managing Hytale servers. Provides easy server control, real-time logs, RAM allocation, CPU/RAM monitoring, configuration editing, command sending, and more — all in a user-friendly interface.
+A PowerShell GUI-based manager for Hytale servers, providing an easy way to start, stop, restart, monitor, update, and configure your server without manually handling command-line operations. Built for Windows with a dark-themed, intuitive interface.
 
-fully made by AI LLMs this application was not made at all by a human, just prompts
+Features
 
----
+Server Control: Start, stop, restart server with live console output.
 
-## Overview
+Resource Monitoring: Real-time CPU and RAM usage display.
 
-The **Hytale Server Manager** simplifies running a Hytale server by giving a full GUI with:
+Configuration Management: Load and edit config.json and permissions.json from GUI.
 
-- Start / Stop / Restart server
-- Dual console output (Control & Console tab)
-- Colored logs `[INFO]`, `[WARN]`, `[ERR]`
-- RAM sliders (min/max)
-- CPU/RAM monitoring
-- Configuration editor with JSON validation
-- Quick command buttons
-- File validation
-- Update tab simulation
+Automatic Updates: Download the latest Hytale server files using the official downloader.
 
-This tool is ideal for **local server management**, but can be adapted for remote servers.
+Command Interface: Send server commands via GUI, including admin commands.
 
----
+File Integrity Check: Ensures all required files (HytaleServer.jar, Assets.zip, Server/, mods/, config.json) are present.
 
-## Features
+Dark Mode UI: Easy-on-the-eyes interface with colored consoles and tabs.
 
-| Feature | Description |
-|---------|-------------|
-| **Server Control** | Start, Stop, Restart server; live status display. |
-| **Dual Colored Console** | Logs shown on Control & Console tabs with color coding: `[INFO]`=Green, `[WARN]`=Yellow, `[ERR]`=Red. |
-| **Command Input** | Send commands to the server directly via input box or quick buttons. |
-| **RAM Management** | Adjust min/max RAM allocation with sliders. |
-| **CPU/RAM Monitoring** | Live usage display. |
-| **Configuration Editor** | Edit `config.json` safely with JSON validation. |
-| **Update Tab** | Simulate server update workflow. |
-| **Check Files Tab** | Validates essential files and folders. |
+Installation
 
----
+Download this repository and place all files in a single folder.
 
-## Installation & Requirements
+Required files:
 
-### Requirements
+HytaleServer.jar
 
-- Windows 10 or later
-- PowerShell 5+
-- Java JDK installed and added to system PATH
-- Hytale server files:
-  - `HytaleServer.jar`
-  - `Assets.zip`
-  - `Server/` folder
-  - `mods/` folder
-  - `config.json`
+Assets.zip
 
-### Installation
+Server/ folder
 
-1. Clone or download this repository.
-2. Place the script in the folder containing your Hytale server files.
-3. Run the script via PowerShell:profit?
+mods/ folder (optional)
 
+config.json
+
+permissions.json
+
+hytale-downloader-windows-amd64.exe
+
+If you do not have the Server/ folder or other required files, you can run the Hytale Downloader (hytale-downloader-windows-amd64.exe) to download them.
+
+Note: After downloading, extract the folder from the ZIP produced by the downloader. All server files and folders must be in the same folder as this manager.
+
+Make sure Java is installed and accessible via your system PATH.
+
+Run Hytale Server Manager.ps1 using PowerShell.
+
+Usage
+Server Control
+
+Start Server: Launches the server with configured RAM allocation.
+
+Stop Server: Gracefully stops the server.
+
+Restart Server: Stops and immediately restarts the server.
+
+Min/Max RAM Sliders: Adjust RAM allocation for the server.
+
+Configuration
+
+Load/Save Configuration: Edit config.json safely from the GUI.
+
+Load/Save Permissions: Edit permissions.json safely.
+
+Update Management
+
+Update Server: Uses the official downloader to fetch the latest server files. Stops the server automatically if running.
+
+Auto-Restart Option: Automatically restarts the server after updates.
+
+Check Versions: Compare currently installed server version with the latest available.
+
+Command Console
+
+Send commands directly to the server.
+
+Supports common admin commands:
+
+/spawning, /ban, /unban, /gamemode, /give, /heal, /kick, /op, /perm, /plugin, /stop, /sudo, /tp, /whitelist, /ping.
+
+File Checks
+
+Check Files Button: Confirms presence of required files and folders.
+
+Highlights missing files in red and shows [WARN] overall status.
+
+Requirements
+
+Windows OS
+
+PowerShell 5.1+
+
+Java 17+ (or version compatible with Hytale Server)
+
+Official Hytale Server Downloader (for missing files or updates)
+
+Folder Structure
+HytaleServerManager/
+│
+├─ Hytale Server Manager.ps1
+├─ HytaleServer.jar
+├─ Assets.zip
+├─ Server/
+├─ mods/
+├─ config.json
+├─ permissions.json
+├─ hytale-downloader-windows-amd64.exe
+└─ logs/
+
+
+All files/folders must be in the same directory as the manager.
+
+Contributing
+
+Feel free to submit PRs to improve UI, add features, or fix bugs. Please ensure PowerShell compatibility and Java version compatibility before submitting.
+
+License
+
+MIT License – Free to use, modify, and distribute.
