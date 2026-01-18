@@ -55,7 +55,5 @@ This tool is ideal for **local server management**, but can be adapted for remot
 
 1. Clone or download this repository.
 2. Place the script in the folder containing your Hytale server files.
-3. Run the script via PowerShell:
+3. Run the script via PowerShell:profit?
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\HytaleServerManager.ps1
