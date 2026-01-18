@@ -38,6 +38,9 @@ $script:jarPath        = Join-Path $PSScriptRoot "HytaleServer.jar"
 # Path to the configuration file for the server
 $script:configPath     = Join-Path $PSScriptRoot "config.json"
 
+# Path to the permissions file
+$script:permissionsPath = Join-Path $PSScriptRoot "permissions.json"
+
 # Path to the main server log file
 $script:logFilePath    = Join-Path $PSScriptRoot "logs\latest.log"
 
@@ -235,6 +238,19 @@ function Restart-Server {
     Start-Server
 }
 
+# =====================
+# BUTTON STYLING HELPER
+# =====================
+
+function Style-Button {
+    param([System.Windows.Forms.Button]$btn)
+
+    $btn.BackColor = $colorButtonBack
+    $btn.ForeColor = $colorButtonText
+    $btn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btn.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(100,100,100)
+}
+
 function Update-CPUAndRAMUsage {
     if (-not $script:serverRunning) { return }
     try {
@@ -276,21 +292,57 @@ function Start-LogPolling {
 
 function Load-Config {
     if (-not (Test-Path $script:configPath)) { return }
-    $txtConfigEditor.Text = Get-Content $script:configPath -Raw
+
+    try {
+        $json = Get-Content $script:configPath -Raw | ConvertFrom-Json
+        $formatted = $json | ConvertTo-Json -Depth 10 -Compress:$false  # Pretty format
+        $txtConfigEditor.Text = $formatted
+    } catch {
+        # Fallback: raw text if JSON invalid
+        $txtConfigEditor.Text = Get-Content $script:configPath -Raw
+    }
 }
 
 function Save-Config {
     try {
-        $txtConfigEditor.Text | ConvertFrom-Json # Validate JSON format
-        Set-Content -Path $script:configPath -Value $txtConfigEditor.Text
-        [System.Windows.Forms.MessageBox]::Show("Configuration saved successfully", "Success")
+        $txtConfigEditor.Text | ConvertFrom-Json  # Validate JSON
+        # Reformat to pretty JSON on save to maintain layout
+        $pretty = ($txtConfigEditor.Text | ConvertFrom-Json | ConvertTo-Json -Depth 10 -Compress:$false)
+        Set-Content -Path $script:configPath -Value $pretty
+        [System.Windows.Forms.MessageBox]::Show("Configuration saved successfully","Success")
     } catch {
-        [System.Windows.Forms.MessageBox]::Show("Invalid JSON format. Please check your configuration.", "Error")
+        [System.Windows.Forms.MessageBox]::Show("Invalid JSON format. Please check your configuration.","Error")
+    }
+}
+
+function Load-Permissions {
+    if (-not (Test-Path $script:permissionsPath)) { return }
+
+    try {
+        $json = Get-Content $script:permissionsPath -Raw | ConvertFrom-Json
+        $formatted = $json | ConvertTo-Json -Depth 10 -Compress:$false
+        $txtConfigEditor.Text = $formatted
+    } catch {
+        $txtConfigEditor.Text = Get-Content $script:permissionsPath -Raw
+    }
+}
+
+function Save-Permissions {
+    try {
+        $txtConfigEditor.Text | ConvertFrom-Json  # Validate JSON
+        $pretty = ($txtConfigEditor.Text | ConvertFrom-Json | ConvertTo-Json -Depth 10 -Compress:$false)
+        Set-Content -Path $script:permissionsPath -Value $pretty
+        [System.Windows.Forms.MessageBox]::Show("Permissions saved successfully","Success")
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show("Invalid JSON format. Please check your permissions file.","Error")
     }
 }
 
 function Update-Server {
-    # Check if downloader exists
+
+    # ==============================
+    # Step 0: Check if downloader exists
+    # ==============================
     if (-not (Test-Path $script:downloaderPath)) {
         $txtUpdateLog.AppendText("[ERROR] Downloader not found at: $script:downloaderPath`r`n")
         $txtUpdateLog.AppendText("[INFO] Please download 'hytale-downloader-windows-amd64.exe' and place it in the server directory.`r`n")
@@ -298,7 +350,9 @@ function Update-Server {
         return
     }
 
-    # Stop server if running
+    # ==============================
+    # Step 1: Stop server if running
+    # ==============================
     $wasRunning = $false
     if ($script:serverRunning) {
         $txtUpdateLog.AppendText("[INFO] Server is running - stopping for update...`r`n")
@@ -307,13 +361,25 @@ function Update-Server {
         Start-Sleep -Seconds 3
     }
 
+    # ==============================
+    # Step 1b: Record existing latest server ZIP before downloading
+    # ==============================
+    $existingZips = Get-ChildItem -Path $PSScriptRoot -Filter "*.zip" | Where-Object { $_.Name -notlike "Assets.zip" }
+    $latestExistingZip = $null
+    if ($existingZips.Count -gt 0) {
+        $latestExistingZip = $existingZips | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        $txtUpdateLog.AppendText("[INFO] Existing latest zip before download: $($latestExistingZip.Name)`r`n")
+    }
+
     try {
         $txtUpdateLog.AppendText("========================================`r`n")
         $txtUpdateLog.AppendText("[INFO] Starting Hytale Server Update`r`n")
         $txtUpdateLog.AppendText("========================================`r`n")
         $txtUpdateLog.AppendText("[INFO] Running downloader: $script:downloaderPath`r`n")
 
-        # Run the downloader
+        # ==============================
+        # Step 2: Run the downloader
+        # ==============================
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $script:downloaderPath
         $psi.WorkingDirectory = $PSScriptRoot
@@ -348,7 +414,9 @@ function Update-Server {
             return
         }
 
-        # Find the downloaded zip file
+        # ==============================
+        # Step 3: Find the downloaded zip file
+        # ==============================
         $txtUpdateLog.AppendText("[INFO] Searching for downloaded files...`r`n")
         $zipFiles = Get-ChildItem -Path $PSScriptRoot -Filter "*.zip" | 
                     Where-Object { $_.Name -notlike "Assets.zip" } | 
@@ -368,7 +436,17 @@ function Update-Server {
         $downloadedZip = $zipFiles[0]
         $txtUpdateLog.AppendText("[INFO] Found: $($downloadedZip.Name) ($([math]::Round($downloadedZip.Length / 1MB, 2)) MB)`r`n")
 
-        # Check if file is actually new by comparing timestamps or size
+        # ==============================
+        # Step 4: Remove old zip if a new zip was downloaded
+        # ==============================
+        if ($latestExistingZip -and ($latestExistingZip.FullName -ne $downloadedZip.FullName)) {
+            Remove-Item -Path $latestExistingZip.FullName -Force
+            $txtUpdateLog.AppendText("[INFO] Removed old zip: $($latestExistingZip.Name)`r`n")
+        }
+
+        # ==============================
+        # Step 5: Existing JAR check / confirmation
+        # ==============================
         $existingJar = Join-Path $PSScriptRoot "HytaleServer.jar"
         if (Test-Path $existingJar) {
             $existingJarDate = (Get-Item $existingJar).LastWriteTime
@@ -396,7 +474,9 @@ function Update-Server {
             }
         }
 
-        # Extract the zip file
+        # ==============================
+        # Step 6: Extract, merge, cleanup
+        # ==============================
         $txtUpdateLog.AppendText("[INFO] Extracting update files...`r`n")
         $tempExtractPath = Join-Path $PSScriptRoot "temp_update_extract"
         
@@ -406,21 +486,17 @@ function Update-Server {
         }
 
         New-Item -Path $tempExtractPath -ItemType Directory -Force | Out-Null
-
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [System.IO.Compression.ZipFile]::ExtractToDirectory($downloadedZip.FullName, $tempExtractPath)
-
         $txtUpdateLog.AppendText("[INFO] Extraction complete.`r`n")
 
-        # Merge files into server directory
+        # Merge files
         $txtUpdateLog.AppendText("[INFO] Merging files into server directory...`r`n")
         $filesCopied = 0
         $filesUpdated = 0
-
         Get-ChildItem -Path $tempExtractPath -Recurse | ForEach-Object {
             $relativePath = $_.FullName.Substring($tempExtractPath.Length + 1)
             $destinationPath = Join-Path $PSScriptRoot $relativePath
-
             if ($_.PSIsContainer) {
                 if (-not (Test-Path $destinationPath)) {
                     New-Item -Path $destinationPath -ItemType Directory -Force | Out-Null
@@ -428,21 +504,14 @@ function Update-Server {
             } else {
                 $fileExists = Test-Path $destinationPath
                 Copy-Item -Path $_.FullName -Destination $destinationPath -Force
-
-                if ($fileExists) {
-                    $filesUpdated++
-                } else {
-                    $filesCopied++
-                }
+                if ($fileExists) { $filesUpdated++ } else { $filesCopied++ }
             }
         }
-
         $txtUpdateLog.AppendText("[INFO] Merge complete! New files: $filesCopied | Updated files: $filesUpdated`r`n")
 
-        # Clean up
+        # Clean up temp
         $txtUpdateLog.AppendText("[INFO] Cleaning up temporary files...`r`n")
         Remove-Item -Path $tempExtractPath -Recurse -Force
-        Remove-Item -Path $downloadedZip.FullName -Force
 
         $txtUpdateLog.AppendText("========================================`r`n")
         $txtUpdateLog.AppendText("[SUCCESS] Update completed successfully!`r`n")
@@ -451,7 +520,7 @@ function Update-Server {
         # Re-validate server files
         Check-ServerFiles
 
-        # Restart server if it was running and auto-restart is enabled
+        # Restart server if it was running
         if ($wasRunning -and $chkAutoRestart.Checked) {
             $txtUpdateLog.AppendText("[INFO] Auto-restart enabled - restarting server in 3 seconds...`r`n")
             Start-Sleep -Seconds 3
@@ -483,6 +552,71 @@ function Update-Server {
                 Start-Server
             }
         }
+    }
+}
+
+function Get-DownloaderServerVersion {
+    $output = Run-DownloaderAndCapture "-print-version"
+
+    if ($output -match "(\d+\.\d+\.\d+)") {
+        return $matches[1]
+    }
+
+    return $null
+}
+
+function Get-ZipServerVersion {
+    # Get all ZIPs in server folder, ignore Assets.zip
+    $zipFiles = Get-ChildItem -Path $PSScriptRoot -Filter "*.zip" | Where-Object { $_.Name -notlike "Assets.zip" }
+
+    if ($zipFiles.Count -eq 0) { return $null } # No zip to compare
+
+    # Take the latest ZIP
+    $latestZip = $zipFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+    # Extract version from filename: e.g. "2026.01.17-4b0f30090.zip" → "4b0f30090"
+    if ($latestZip.Name -match '^\d{4}\.\d{2}\.\d{2}-(.+)\.zip$') {
+        return $matches[1]
+    } else {
+        return $null
+    }
+}
+
+function Check-ServerUpdate {
+
+    $exeVersion = Get-DownloaderServerVersion
+    if (-not $exeVersion) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Could not read server version from downloader.",
+            "Version Error"
+        )
+        return
+    }
+
+    $zipVersion = Get-ZipServerVersion
+    if (-not $zipVersion) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "No server update ZIP found to compare against.",
+            "No Update Package"
+        )
+        return
+    }
+	
+	$txtUpdateLog.AppendText("[DEBUG] EXE=$exeVersion ZIP=$zipVersion`r`n")
+
+    if ($exeVersion -ne $zipVersion) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Update Available!`n`nInstalled (EXE): $exeVersion`nZIP Package: $zipVersion",
+            "Update Available",
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+    }
+    else {
+        [System.Windows.Forms.MessageBox]::Show(
+            "No update available.`n`nVersion: $exeVersion",
+            "Up To Date",
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
     }
 }
 
@@ -524,9 +658,11 @@ function Run-DownloaderCommand {
         $txtUpdateLog.AppendText("[INFO] Command completed (Exit Code: $($process.ExitCode))`r`n")
         $txtUpdateLog.AppendText("========================================`r`n")
 
+        return $output   # ✅ Return the raw output
     } catch {
         $txtUpdateLog.AppendText("[EXCEPTION] $($_)`r`n")
         [System.Windows.Forms.MessageBox]::Show("Command failed: $_", "Error")
+        return $null
     }
 }
 
@@ -538,6 +674,20 @@ function Send-ServerCommand {
     } else {
         [System.Windows.Forms.MessageBox]::Show("Server is not running.","Error")
     }
+}
+
+function Get-VersionFromConsole {
+    param([System.Windows.Forms.TextBox]$console)
+
+    $lines = $console.Text -split "`r?`n"
+
+    foreach ($line in ($lines | Select-Object -Last 20)) {
+        if ($line -match "(\d+\.\d+\.\d+)") {
+            return $matches[1]
+        }
+    }
+
+    return $null
 }
 
 # =====================
@@ -566,18 +716,21 @@ $tabs.TabPages.Add($tabServer)
 $btnStart = New-Object System.Windows.Forms.Button
 $btnStart.Text = "Start Server"
 $btnStart.Location = New-Object System.Drawing.Point(10, 20)
+Style-Button $btnStart        # 👈 ADD THIS LINE
 $btnStart.Add_Click({ Start-Server })
 $tabServer.Controls.Add($btnStart)
 
 $btnStop = New-Object System.Windows.Forms.Button
 $btnStop.Text = "Stop Server"
 $btnStop.Location = New-Object System.Drawing.Point(120, 20)
+Style-Button $btnStop
 $btnStop.Add_Click({ Stop-Server })
 $tabServer.Controls.Add($btnStop)
 
 $btnRestart = New-Object System.Windows.Forms.Button
 $btnRestart.Text = "Restart Server"
 $btnRestart.Location = New-Object System.Drawing.Point(230, 20)
+Style-Button $btnRestart
 $btnRestart.Add_Click({ Restart-Server })
 $tabServer.Controls.Add($btnRestart)
 
@@ -667,12 +820,16 @@ $tabConfig.Text = "Configuration"
 $tabConfig.BackColor = $colorBack
 $tabs.TabPages.Add($tabConfig)
 
-$txtConfigEditor = New-Object System.Windows.Forms.TextBox
+$txtConfigEditor = New-Object System.Windows.Forms.RichTextBox
 $txtConfigEditor.Multiline = $true
-$txtConfigEditor.ScrollBars = "Vertical"
+$txtConfigEditor.ScrollBars = "Both"          # Vertical + horizontal scrollbars
 $txtConfigEditor.BackColor = $colorTextboxBack
 $txtConfigEditor.ForeColor = $colorTextboxText
-$txtConfigEditor.Font = New-Object System.Drawing.Font("Consolas", 9)
+$txtConfigEditor.Font = New-Object System.Drawing.Font("Consolas", 10)  # Monospaced font
+$txtConfigEditor.WordWrap = $false            # Prevent line breaking
+$txtConfigEditor.AcceptsTab = $true           # Tabs work for indentation
+$txtConfigEditor.EnableAutoDragDrop = $false
+$txtConfigEditor.DetectUrls = $false
 $txtConfigEditor.Location = New-Object System.Drawing.Point(10, 20)
 $txtConfigEditor.Size = New-Object System.Drawing.Size(760, 450)
 $tabConfig.Controls.Add($txtConfigEditor)
@@ -681,6 +838,7 @@ $btnLoadConfig = New-Object System.Windows.Forms.Button
 $btnLoadConfig.Text = "Load Configuration"
 $btnLoadConfig.Location = New-Object System.Drawing.Point(790, 20)
 $btnLoadConfig.Size = New-Object System.Drawing.Size(180, 30)
+Style-Button $btnLoadConfig
 $btnLoadConfig.Add_Click({ Load-Config })
 $tabConfig.Controls.Add($btnLoadConfig)
 
@@ -688,31 +846,52 @@ $btnSaveConfig = New-Object System.Windows.Forms.Button
 $btnSaveConfig.Text = "Save Configuration"
 $btnSaveConfig.Location = New-Object System.Drawing.Point(790, 60)
 $btnSaveConfig.Size = New-Object System.Drawing.Size(180, 30)
+Style-Button $btnSaveConfig
 $btnSaveConfig.Add_Click({ Save-Config })
 $tabConfig.Controls.Add($btnSaveConfig)
 
+$btnLoadPermissions = New-Object System.Windows.Forms.Button
+$btnLoadPermissions.Text = "Load Permissions"
+$btnLoadPermissions.Location = New-Object System.Drawing.Point(790, 100)  # 40px below Load Config
+$btnLoadPermissions.Size = New-Object System.Drawing.Size(180, 30)
+Style-Button $btnLoadPermissions
+$btnLoadPermissions.Add_Click({ Load-Permissions })
+$tabConfig.Controls.Add($btnLoadPermissions)
+
+$btnSavePermissions = New-Object System.Windows.Forms.Button
+$btnSavePermissions.Text = "Save Permissions"
+$btnSavePermissions.Location = New-Object System.Drawing.Point(790, 140)  # 40px below Save Config
+$btnSavePermissions.Size = New-Object System.Drawing.Size(180, 30)
+Style-Button $btnSavePermissions
+$btnSavePermissions.Add_Click({ Save-Permissions })
+$tabConfig.Controls.Add($btnSavePermissions)
+
 # =====================
-# UPDATE TAB
+# SERVER MAINTENANCE TAB (MERGED)
 # =====================
 
-$tabUpdate = New-Object System.Windows.Forms.TabPage
-$tabUpdate.Text = "Update"
-$tabUpdate.BackColor = $colorBack
-$tabs.TabPages.Add($tabUpdate)
+$tabServer = New-Object System.Windows.Forms.TabPage
+$tabServer.Text = "Server Maintenance"
+$tabServer.BackColor = $colorBack
+$tabs.TabPages.Add($tabServer)
+
+# =====================
+# UPDATE SECTION
+# =====================
 
 $lblUpdateInfo = New-Object System.Windows.Forms.Label
 $lblUpdateInfo.Text = "Download and install the latest Hytale server files using the official downloader."
 $lblUpdateInfo.Location = New-Object System.Drawing.Point(10, 20)
-$lblUpdateInfo.Size = New-Object System.Drawing.Size(900, 20)
+$lblUpdateInfo.Size = New-Object System.Drawing.Size(940, 20)
 $lblUpdateInfo.ForeColor = $colorText
-$tabUpdate.Controls.Add($lblUpdateInfo)
+$tabServer.Controls.Add($lblUpdateInfo)
 
 $lblDownloaderPath = New-Object System.Windows.Forms.Label
 $lblDownloaderPath.Text = "Downloader:"
 $lblDownloaderPath.Location = New-Object System.Drawing.Point(10, 50)
 $lblDownloaderPath.Size = New-Object System.Drawing.Size(80, 20)
 $lblDownloaderPath.ForeColor = $colorText
-$tabUpdate.Controls.Add($lblDownloaderPath)
+$tabServer.Controls.Add($lblDownloaderPath)
 
 $txtDownloaderPath = New-Object System.Windows.Forms.TextBox
 $txtDownloaderPath.Location = New-Object System.Drawing.Point(100, 48)
@@ -721,7 +900,7 @@ $txtDownloaderPath.ReadOnly = $true
 $txtDownloaderPath.BackColor = $colorTextboxBack
 $txtDownloaderPath.ForeColor = $colorTextboxText
 $txtDownloaderPath.Text = $script:downloaderPath
-$tabUpdate.Controls.Add($txtDownloaderPath)
+$tabServer.Controls.Add($txtDownloaderPath)
 
 $btnUpdateServer = New-Object System.Windows.Forms.Button
 $btnUpdateServer.Text = "Update Server"
@@ -731,7 +910,7 @@ $btnUpdateServer.BackColor = [System.Drawing.Color]::FromArgb(70, 130, 180)
 $btnUpdateServer.ForeColor = $colorText
 $btnUpdateServer.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
 $btnUpdateServer.Add_Click({ Update-Server })
-$tabUpdate.Controls.Add($btnUpdateServer)
+$tabServer.Controls.Add($btnUpdateServer)
 
 $chkAutoRestart = New-Object System.Windows.Forms.CheckBox
 $chkAutoRestart.Text = "Auto-restart server after update"
@@ -739,7 +918,7 @@ $chkAutoRestart.Location = New-Object System.Drawing.Point(270, 85)
 $chkAutoRestart.Size = New-Object System.Drawing.Size(250, 25)
 $chkAutoRestart.ForeColor = $colorText
 $chkAutoRestart.Checked = $true
-$tabUpdate.Controls.Add($chkAutoRestart)
+$tabServer.Controls.Add($chkAutoRestart)
 
 $lblUpdateWarning = New-Object System.Windows.Forms.Label
 $lblUpdateWarning.Text = "[!] Server will be stopped during update"
@@ -747,7 +926,66 @@ $lblUpdateWarning.Location = New-Object System.Drawing.Point(530, 88)
 $lblUpdateWarning.Size = New-Object System.Drawing.Size(250, 20)
 $lblUpdateWarning.ForeColor = [System.Drawing.Color]::Orange
 $lblUpdateWarning.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$tabUpdate.Controls.Add($lblUpdateWarning)
+$tabServer.Controls.Add($lblUpdateWarning)
+
+# Downloader utility buttons
+$lblDownloaderUtils = New-Object System.Windows.Forms.Label
+$lblDownloaderUtils.Text = "Downloader Utilities:"
+$lblDownloaderUtils.Location = New-Object System.Drawing.Point(10, 135)
+$lblDownloaderUtils.Size = New-Object System.Drawing.Size(150, 20)
+$lblDownloaderUtils.ForeColor = $colorText
+$lblDownloaderUtils.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$tabServer.Controls.Add($lblDownloaderUtils)
+
+$btnPrintVersion = New-Object System.Windows.Forms.Button
+$btnPrintVersion.Text = "Check for Server Update"
+$btnPrintVersion.Location = New-Object System.Drawing.Point(160, 130)
+$btnPrintVersion.Size = New-Object System.Drawing.Size(140, 28)
+$btnPrintVersion.BackColor = $colorButtonBack
+$btnPrintVersion.ForeColor = $colorText
+$btnPrintVersion.Add_Click({
+    $output = Run-DownloaderCommand "-print-version" "Checking server version"
+    if (-not $output) {
+        [System.Windows.Forms.MessageBox]::Show("Could not get server version from downloader.", "Error")
+        return
+    }
+    if ($output -match '(\d{4}\.\d{2}\.\d{2})-(\w+)') {
+        $datePart = $matches[1]
+        $hashPart = $matches[2]
+        $exeVersion = $hashPart
+    } else {
+        $exeVersion = $output.Trim()
+    }
+    $zipVersion = Get-ZipServerVersion
+    if (-not $zipVersion) {
+        [System.Windows.Forms.MessageBox]::Show("No server update ZIP found to compare against.", "No Update Package")
+        return
+    }
+    if ($exeVersion -ne $zipVersion) {
+        [System.Windows.Forms.MessageBox]::Show("Update Available!`n`nInstalled (Server): $exeVersion`nZIP Package: $zipVersion", "Update Available",[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Information)
+    } else {
+        [System.Windows.Forms.MessageBox]::Show("No update available.`n`nVersion: $exeVersion", "Up To Date",[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Information)
+    }
+})
+$tabServer.Controls.Add($btnPrintVersion)
+
+$btnDownloaderVersion = New-Object System.Windows.Forms.Button
+$btnDownloaderVersion.Text = "Downloader Version"
+$btnDownloaderVersion.Location = New-Object System.Drawing.Point(310, 130)
+$btnDownloaderVersion.Size = New-Object System.Drawing.Size(140, 28)
+$btnDownloaderVersion.BackColor = $colorButtonBack
+$btnDownloaderVersion.ForeColor = $colorText
+$btnDownloaderVersion.Add_Click({ Run-DownloaderCommand "-version" "Checking downloader version" })
+$tabServer.Controls.Add($btnDownloaderVersion)
+
+$btnCheckUpdate = New-Object System.Windows.Forms.Button
+$btnCheckUpdate.Text = "Check for Downloader Update"
+$btnCheckUpdate.Location = New-Object System.Drawing.Point(460, 130)
+$btnCheckUpdate.Size = New-Object System.Drawing.Size(140, 28)
+$btnCheckUpdate.BackColor = $colorButtonBack
+$btnCheckUpdate.ForeColor = $colorText
+$btnCheckUpdate.Add_Click({ Run-DownloaderCommand "-check-update" "Checking for downloader updates" })
+$tabServer.Controls.Add($btnCheckUpdate)
 
 $txtUpdateLog = New-Object System.Windows.Forms.TextBox
 $txtUpdateLog.Multiline = $true
@@ -757,125 +995,96 @@ $txtUpdateLog.BackColor = $colorConsoleBack
 $txtUpdateLog.ForeColor = $colorConsoleText
 $txtUpdateLog.Font = New-Object System.Drawing.Font("Consolas", 9)
 $txtUpdateLog.Location = New-Object System.Drawing.Point(10, 170)
-$txtUpdateLog.Size = New-Object System.Drawing.Size(960, 350)
-$tabUpdate.Controls.Add($txtUpdateLog)
-
-# Downloader utility buttons
-$lblDownloaderUtils = New-Object System.Windows.Forms.Label
-$lblDownloaderUtils.Text = "Downloader Utilities:"
-$lblDownloaderUtils.Location = New-Object System.Drawing.Point(10, 135)
-$lblDownloaderUtils.Size = New-Object System.Drawing.Size(150, 20)
-$lblDownloaderUtils.ForeColor = $colorText
-$lblDownloaderUtils.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$tabUpdate.Controls.Add($lblDownloaderUtils)
-
-$btnPrintVersion = New-Object System.Windows.Forms.Button
-$btnPrintVersion.Text = "Show Game Version"
-$btnPrintVersion.Location = New-Object System.Drawing.Point(160, 130)
-$btnPrintVersion.Size = New-Object System.Drawing.Size(140, 28)
-$btnPrintVersion.BackColor = $colorButtonBack
-$btnPrintVersion.ForeColor = $colorText
-$btnPrintVersion.Add_Click({ Run-DownloaderCommand "-print-version" "Checking game version" })
-$tabUpdate.Controls.Add($btnPrintVersion)
-
-$btnDownloaderVersion = New-Object System.Windows.Forms.Button
-$btnDownloaderVersion.Text = "Downloader Version"
-$btnDownloaderVersion.Location = New-Object System.Drawing.Point(310, 130)
-$btnDownloaderVersion.Size = New-Object System.Drawing.Size(140, 28)
-$btnDownloaderVersion.BackColor = $colorButtonBack
-$btnDownloaderVersion.ForeColor = $colorText
-$btnDownloaderVersion.Add_Click({ Run-DownloaderCommand "-version" "Checking downloader version" })
-$tabUpdate.Controls.Add($btnDownloaderVersion)
-
-$btnCheckUpdate = New-Object System.Windows.Forms.Button
-$btnCheckUpdate.Text = "Check for Updates"
-$btnCheckUpdate.Location = New-Object System.Drawing.Point(460, 130)
-$btnCheckUpdate.Size = New-Object System.Drawing.Size(140, 28)
-$btnCheckUpdate.BackColor = $colorButtonBack
-$btnCheckUpdate.ForeColor = $colorText
-$btnCheckUpdate.Add_Click({ Run-DownloaderCommand "-check-update" "Checking for downloader updates" })
-$tabUpdate.Controls.Add($btnCheckUpdate)
+$txtUpdateLog.Size = New-Object System.Drawing.Size(960, 150)
+$tabServer.Controls.Add($txtUpdateLog)
 
 # =====================
-# CHECK FILES TAB
+# CHECK FILES SECTION (MINIMAL FIX)
 # =====================
 
-$tabCheckFiles = New-Object System.Windows.Forms.TabPage
-$tabCheckFiles.Text = "Check Files"
-$tabCheckFiles.BackColor = $colorBack
-$tabs.TabPages.Add($tabCheckFiles)
+$lblCheckFilesTitle = New-Object System.Windows.Forms.Label
+$lblCheckFilesTitle.Text = "Check Required Files:"
+$lblCheckFilesTitle.Location = New-Object System.Drawing.Point(10, 330)
+$lblCheckFilesTitle.Size = New-Object System.Drawing.Size(200, 20)
+$lblCheckFilesTitle.ForeColor = $colorText
+$lblCheckFilesTitle.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$tabServer.Controls.Add($lblCheckFilesTitle)
 
+# Keep explicit variables for each file to match your Check-ServerFiles function
 $lblJarFile = New-Object System.Windows.Forms.Label
 $lblJarFile.Text = "HytaleServer.jar - Missing"
-$lblJarFile.Location = New-Object System.Drawing.Point(10, 20)
+$lblJarFile.Location = New-Object System.Drawing.Point(10, 360)
 $lblJarFile.ForeColor = [System.Drawing.Color]::Red
-$tabCheckFiles.Controls.Add($lblJarFile)
+$tabServer.Controls.Add($lblJarFile)
 
 $lblJarStatus = New-Object System.Windows.Forms.Label
 $lblJarStatus.Text = "[!!]"
-$lblJarStatus.Location = New-Object System.Drawing.Point(400, 25)
+$lblJarStatus.Location = New-Object System.Drawing.Point(400, 360)
 $lblJarStatus.ForeColor = [System.Drawing.Color]::Red
-$tabCheckFiles.Controls.Add($lblJarStatus)
+$tabServer.Controls.Add($lblJarStatus)
 
 $lblAssetsFile = New-Object System.Windows.Forms.Label
 $lblAssetsFile.Text = "Assets.zip - Missing"
-$lblAssetsFile.Location = New-Object System.Drawing.Point(10, 60)
+$lblAssetsFile.Location = New-Object System.Drawing.Point(10, 400)
 $lblAssetsFile.ForeColor = [System.Drawing.Color]::Red
-$tabCheckFiles.Controls.Add($lblAssetsFile)
+$tabServer.Controls.Add($lblAssetsFile)
 
 $lblAssetsStatus = New-Object System.Windows.Forms.Label
 $lblAssetsStatus.Text = "[!!]"
-$lblAssetsStatus.Location = New-Object System.Drawing.Point(400, 65)
+$lblAssetsStatus.Location = New-Object System.Drawing.Point(400, 400)
 $lblAssetsStatus.ForeColor = [System.Drawing.Color]::Red
-$tabCheckFiles.Controls.Add($lblAssetsStatus)
+$tabServer.Controls.Add($lblAssetsStatus)
 
 $lblServerFolder = New-Object System.Windows.Forms.Label
 $lblServerFolder.Text = "Server/ - Missing"
-$lblServerFolder.Location = New-Object System.Drawing.Point(10, 100)
+$lblServerFolder.Location = New-Object System.Drawing.Point(10, 440)
 $lblServerFolder.ForeColor = [System.Drawing.Color]::Red
-$tabCheckFiles.Controls.Add($lblServerFolder)
+$tabServer.Controls.Add($lblServerFolder)
 
 $lblServerFolderStatus = New-Object System.Windows.Forms.Label
 $lblServerFolderStatus.Text = "[!!]"
-$lblServerFolderStatus.Location = New-Object System.Drawing.Point(400, 105)
+$lblServerFolderStatus.Location = New-Object System.Drawing.Point(400, 440)
 $lblServerFolderStatus.ForeColor = [System.Drawing.Color]::Red
-$tabCheckFiles.Controls.Add($lblServerFolderStatus)
+$tabServer.Controls.Add($lblServerFolderStatus)
 
 $lblModsFolder = New-Object System.Windows.Forms.Label
 $lblModsFolder.Text = "mods/ - Missing"
-$lblModsFolder.Location = New-Object System.Drawing.Point(10, 140)
+$lblModsFolder.Location = New-Object System.Drawing.Point(10, 480)
 $lblModsFolder.ForeColor = [System.Drawing.Color]::Red
-$tabCheckFiles.Controls.Add($lblModsFolder)
+$tabServer.Controls.Add($lblModsFolder)
 
 $lblModsFolderStatus = New-Object System.Windows.Forms.Label
 $lblModsFolderStatus.Text = "[!!]"
-$lblModsFolderStatus.Location = New-Object System.Drawing.Point(400, 145)
+$lblModsFolderStatus.Location = New-Object System.Drawing.Point(400, 480)
 $lblModsFolderStatus.ForeColor = [System.Drawing.Color]::Red
-$tabCheckFiles.Controls.Add($lblModsFolderStatus)
+$tabServer.Controls.Add($lblModsFolderStatus)
 
 $lblConfigFile = New-Object System.Windows.Forms.Label
 $lblConfigFile.Text = "config.json - Missing"
-$lblConfigFile.Location = New-Object System.Drawing.Point(10, 180)
+$lblConfigFile.Location = New-Object System.Drawing.Point(10, 515)  # slight move up (from 520)
 $lblConfigFile.ForeColor = [System.Drawing.Color]::Red
-$tabCheckFiles.Controls.Add($lblConfigFile)
+$tabServer.Controls.Add($lblConfigFile)
 
 $lblConfigStatus = New-Object System.Windows.Forms.Label
 $lblConfigStatus.Text = "[!!]"
-$lblConfigStatus.Location = New-Object System.Drawing.Point(400, 185)
+$lblConfigStatus.Location = New-Object System.Drawing.Point(400, 515)  # slight move up
 $lblConfigStatus.ForeColor = [System.Drawing.Color]::Red
-$tabCheckFiles.Controls.Add($lblConfigStatus)
+$tabServer.Controls.Add($lblConfigStatus)
 
+# Check Files button on the right (unchanged)
 $btnCheckFiles = New-Object System.Windows.Forms.Button
 $btnCheckFiles.Text = "Check Files"
-$btnCheckFiles.Location = New-Object System.Drawing.Point(10, 220)
+$btnCheckFiles.Location = New-Object System.Drawing.Point(700, 360)
+Style-Button $btnCheckFiles
 $btnCheckFiles.Add_Click({ Check-ServerFiles })
-$tabCheckFiles.Controls.Add($btnCheckFiles)
+$tabServer.Controls.Add($btnCheckFiles)
 
+# Overall status label under button (unchanged)
 $lblOverallStatus = New-Object System.Windows.Forms.Label
 $lblOverallStatus.Text = "[WARN] Missing required files"
-$lblOverallStatus.Location = New-Object System.Drawing.Point(400, 225)
+$lblOverallStatus.Location = New-Object System.Drawing.Point(700, 400)
 $lblOverallStatus.ForeColor = [System.Drawing.Color]::Orange
-$tabCheckFiles.Controls.Add($lblOverallStatus)
+$tabServer.Controls.Add($lblOverallStatus)
 
 # =====================
 # COMMAND TAB WITH BUTTONS (FLOW LAYOUT)
@@ -908,6 +1117,7 @@ $btnSendCommand = New-Object System.Windows.Forms.Button
 $btnSendCommand.Text = "Send"
 $btnSendCommand.Location = New-Object System.Drawing.Point(820, 320)
 $btnSendCommand.Size = New-Object System.Drawing.Size(120, 25)
+Style-Button $btnSendCommand
 $btnSendCommand.Add_Click({
     Send-ServerCommand $txtCommandInput.Text
     $txtCommandInput.Text = ""
@@ -957,6 +1167,7 @@ foreach ($cmd in $adminCommands.Keys) {
     $btn.Text = $cmd
     $btn.Size = New-Object System.Drawing.Size(80, 25)
     $btn.Tag = $cmd  # Store the command in the Tag property
+	Style-Button $btn    # 👈 ADD THIS LINE
     $btn.Add_Click({ 
         $txtCommandInput.Text = $this.Tag + " "  # Insert command into textbox with a space
         $txtCommandInput.Focus()  # Focus the textbox so user can type arguments
@@ -983,6 +1194,7 @@ foreach ($cmd in $worldCommands.Keys) {
     $btn.Text = $cmd
     $btn.Size = New-Object System.Drawing.Size(80, 25)
     $btn.Tag = $cmd  # Store the command in the Tag property
+	Style-Button $btn    # 👈 ADD THIS LINE
     $btn.Add_Click({ 
         $txtCommandInput.Text = $this.Tag + " "  # Insert command into textbox with a space
         $txtCommandInput.Focus()  # Focus the textbox so user can type arguments
