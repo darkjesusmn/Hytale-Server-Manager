@@ -44,8 +44,8 @@ A PowerShell GUI-based server manager for Hytale. Easily run, update, and manage
 * Ensure you have PowerShell installed (Windows recommended)
 * Place the Hytale Server Manager script in a folder of your choice
 * Download the Hytale server files or use the Hytale downloader to get any missing files
-* Extract the downloaded server folder from the downloader so all files (including HytaleServer.jar, Assets.zip, and Server folder) are in the **same directory** as this manager
-* Launch the PowerShell script by double-clicking it or running it via terminal
+* Extract the downloaded server files from the downloader so all files are in the **same directory** as this manager
+* Launch the PowerShell script by right clicking it and run with powershell
 
 ---
 
