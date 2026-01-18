@@ -2,6 +2,8 @@
 
 A **PowerShell-based GUI** for managing Hytale servers. Provides easy server control, real-time logs, RAM allocation, CPU/RAM monitoring, configuration editing, command sending, and more — all in a user-friendly interface.
 
+fully made by AI LLMs this application was not made at all by a human, just prompts
+
 ---
 
 ## Overview
