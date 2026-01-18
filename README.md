@@ -1,6 +1,4 @@
 
-    'Hytale Server Manager',
-    $README$
 # Hytale Server Manager
 
 A PowerShell GUI-based server manager for Hytale. Easily run, update, and manage your server with a dark-themed interface. Includes server control, automatic updates, console commands, configuration editing, and file verification
