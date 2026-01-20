@@ -112,3 +112,12 @@
 3. **Start the server** using the **"Start Server"** button.
 4. **Monitor logs**, configure settings, and manage the server via the GUI.
 
+
+<img width="1180" height="638" alt="{88D7501D-2B5F-4556-991A-7E951DD44F7B}" src="https://github.com/user-attachments/assets/8576a157-09eb-4da3-b7db-5dfbf3a2c8ce" />
+
+<img width="1179" height="406" alt="{09CD1A69-6DFA-49E5-BB4C-7D1D47407508}" src="https://github.com/user-attachments/assets/09f84596-3c2b-4ef1-9857-2838d853754d" />
+
+<img width="1179" height="638" alt="{ADFB9C6D-579B-4EE5-B075-F6AB4304B27F}" src="https://github.com/user-attachments/assets/428f6def-99b5-4ed3-a4ad-83a2bf5f0e24" />
+
+
+
