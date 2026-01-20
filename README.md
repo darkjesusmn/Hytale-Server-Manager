@@ -1,6 +1,6 @@
 # **Hytale Server Manager GUI - Comprehensive Guide (Corrected)**
 
----
+---**This program was full made by AI LLM's ChatGPT, ClaudeAI, Copilot, qwen:14b, qen 2.5-coder:14b. ZERO CODE WAS MADE BY A HUMAN**
 
 ## **1. Installation Guide**
 
@@ -112,4 +112,3 @@
 3. **Start the server** using the **"Start Server"** button.
 4. **Monitor logs**, configure settings, and manage the server via the GUI.
 
-Let me know if you need further clarification!
