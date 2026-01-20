@@ -1,4 +1,4 @@
-# **Hytale Server Manager GUI - Comprehensive Guide (Corrected)**
+# **Hytale Server Manager GUI - Comprehensive Guide**
 
 **This program was full made by AI LLM's ChatGPT, ClaudeAI, Copilot, qwen:14b, qen 2.5-coder:14b. ZERO CODE WAS MADE BY A HUMAN**
 
