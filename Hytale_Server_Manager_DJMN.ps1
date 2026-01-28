@@ -233,6 +233,21 @@ $script:pingFailCount = 0
 # Stores the last successful ping response time
 $script:lastPingTime = $null
 
+# ------------------------------------------------------------------------------------------
+# MOD MANAGER PATHS
+# ------------------------------------------------------------------------------------------
+
+# Path to the mods folder where active mods are stored
+$script:modsPath = Join-Path $PSScriptRoot "mods"
+
+# Path to the disabled mods folder
+$script:modsDisabledPath = Join-Path $PSScriptRoot "mods_disabled"
+
+# Global variable to store the mod list view control
+$script:modListView = $null
+
+
+
 # ==========================================================================================
 # SECTION: DARK MODE COLOR DEFINITIONS
 # ==========================================================================================
@@ -309,6 +324,57 @@ $colorConsoleBack = [System.Drawing.Color]::Black
 # Foreground color for server log output displayed in the console.
 # LightGreen is commonly associated with terminal output and improves log readability.
 $colorConsoleText = [System.Drawing.Color]::LightGreen
+
+# ------------------------------------------------------------------------------------------
+# THEME SWITCHER VARIABLES
+# ------------------------------------------------------------------------------------------
+
+# Current active theme
+$script:currentTheme = "Dark"
+
+# Available theme presets
+$script:themes = @{
+    "Dark" = @{
+        Back = [System.Drawing.Color]::FromArgb(30,30,30)
+        Text = [System.Drawing.Color]::White
+        TextboxBack = [System.Drawing.Color]::FromArgb(50,50,50)
+        TextboxText = [System.Drawing.Color]::White
+        ButtonBack = [System.Drawing.Color]::FromArgb(70,70,70)
+        ButtonText = [System.Drawing.Color]::White
+        ConsoleBack = [System.Drawing.Color]::Black
+        ConsoleText = [System.Drawing.Color]::LimeGreen
+    }
+    "Light" = @{
+        Back = [System.Drawing.Color]::FromArgb(240,240,240)
+        Text = [System.Drawing.Color]::Black
+        TextboxBack = [System.Drawing.Color]::White
+        TextboxText = [System.Drawing.Color]::Black
+        ButtonBack = [System.Drawing.Color]::FromArgb(200,200,200)
+        ButtonText = [System.Drawing.Color]::Black
+        ConsoleBack = [System.Drawing.Color]::White
+        ConsoleText = [System.Drawing.Color]::DarkGreen
+    }
+    "Blue" = @{
+        Back = [System.Drawing.Color]::FromArgb(20,30,50)
+        Text = [System.Drawing.Color]::White
+        TextboxBack = [System.Drawing.Color]::FromArgb(30,50,80)
+        TextboxText = [System.Drawing.Color]::White
+        ButtonBack = [System.Drawing.Color]::FromArgb(50,80,120)
+        ButtonText = [System.Drawing.Color]::White
+        ConsoleBack = [System.Drawing.Color]::FromArgb(10,15,25)
+        ConsoleText = [System.Drawing.Color]::Cyan
+    }
+    "Purple" = @{
+        Back = [System.Drawing.Color]::FromArgb(40,20,50)
+        Text = [System.Drawing.Color]::White
+        TextboxBack = [System.Drawing.Color]::FromArgb(60,40,80)
+        TextboxText = [System.Drawing.Color]::White
+        ButtonBack = [System.Drawing.Color]::FromArgb(80,50,100)
+        ButtonText = [System.Drawing.Color]::White
+        ConsoleBack = [System.Drawing.Color]::FromArgb(20,10,30)
+        ConsoleText = [System.Drawing.Color]::Magenta
+    }
+}
 
 # =====================
 # FUNCTIONS
@@ -2334,26 +2400,74 @@ function Stop-Server {
 # Function: Restart-Server
 # =====================
 # PURPOSE:
-# Provides a simple mechanism to restart the Hytale server by stopping it and then starting it again.
+# Provides a mechanism to restart the Hytale server with a configurable countdown warning.
+# Warns players multiple times before restart to prevent data loss or interrupted gameplay.
 # Useful for applying new configuration changes, clearing memory, or recovering from an error state.
 #
 # OPERATION FLOW:
-# Step 1: Stop the server gracefully using Stop-Server (cleans up process, timers, and events)
-# Step 2: Wait for 5 seconds to allow resources to fully release and prevent startup conflicts
-# Step 3: Start the server using Start-Server (launches Java process, sets up events, starts timers)
+# Step 1: Announce restart to all players with countdown
+# Step 2: Send warning messages at intervals (60s, 30s, 10s, 5s, etc.)
+# Step 3: Stop the server gracefully using Stop-Server
+# Step 4: Wait for resources to fully release
+# Step 5: Start the server using Start-Server
 #
-# PARAMETERS: None
+# PARAMETERS: 
+# - $countdownSeconds (optional): Total countdown time in seconds (default: 60)
 #
 # RETURN: None
 # =====================
 function Restart-Server {
-    # Step 1: Stop server
+    param([int]$countdownSeconds = 60)
+    
+    # Check if server is running
+    if (-not $script:serverRunning) {
+        $txtConsole.AppendText("[WARN] Cannot restart - server is not running`r`n")
+        return
+    }
+    
+    # Step 1: Initial announcement
+    $txtConsole.AppendText("[INFO] Server restart initiated - $countdownSeconds second countdown`r`n")
+    Send-ServerCommand "/say [SERVER] Server restart in $countdownSeconds seconds!"
+    
+    # Step 2: Countdown warnings at specific intervals
+    $warningIntervals = @(60, 45, 30, 20, 10, 5, 4, 3, 2, 1)
+    
+    foreach ($interval in $warningIntervals) {
+        if ($interval -ge $countdownSeconds) { continue }
+        
+        # Calculate wait time until next warning
+        $currentTime = $countdownSeconds
+        $waitTime = $currentTime - $interval
+        
+        if ($waitTime -gt 0) {
+            Start-Sleep -Seconds $waitTime
+            $countdownSeconds = $interval
+            
+            # Send warning message
+            if ($interval -le 10) {
+                Send-ServerCommand "/say [SERVER] RESTARTING IN $interval SECONDS!"
+                $txtConsole.AppendText("[WARN] Restart in $interval seconds...`r`n")
+            } else {
+                Send-ServerCommand "/say [SERVER] Server restart in $interval seconds"
+                $txtConsole.AppendText("[INFO] Restart in $interval seconds...`r`n")
+            }
+        }
+    }
+    
+    # Final warning
+    Send-ServerCommand "/say [SERVER] RESTARTING NOW! Please reconnect in a moment..."
+    $txtConsole.AppendText("[INFO] Initiating restart sequence...`r`n")
+    
+    # Small delay for final message to be sent
+    Start-Sleep -Seconds 2
+    
+    # Step 3: Stop server
     Stop-Server
-
-    # Step 2: Wait briefly to ensure shutdown completes
-    Start-Sleep 5
-
-    # Step 3: Start server
+    
+    # Step 4: Wait for resources to release
+    Start-Sleep -Seconds 5
+    
+    # Step 5: Start server
     Start-Server
 }
 
@@ -2843,6 +2957,477 @@ function Download-LatestDownloader {
 }
 
 # ==========================================================================================
+# SECTION: MOD MANAGER FUNCTIONS
+# ==========================================================================================
+
+# =====================
+# Function: Refresh-ModList
+# =====================
+# PURPOSE: Scans the mods and mods_disabled folders and populates the ListView
+function Refresh-ModList {
+    if (-not $script:modListView) { return }
+    
+    $script:modListView.Items.Clear()
+    
+    # Ensure mods directories exist
+    if (-not (Test-Path $script:modsPath)) {
+        New-Item -Path $script:modsPath -ItemType Directory -Force | Out-Null
+    }
+    if (-not (Test-Path $script:modsDisabledPath)) {
+        New-Item -Path $script:modsDisabledPath -ItemType Directory -Force | Out-Null
+    }
+    
+    # Get enabled mods (in /mods folder)
+    $enabledMods = Get-ChildItem -Path $script:modsPath -Filter "*.jar" -ErrorAction SilentlyContinue
+    foreach ($mod in $enabledMods) {
+        $item = New-Object System.Windows.Forms.ListViewItem($mod.Name)
+        $item.SubItems.Add("ENABLED")
+        $fileSizeMB = [math]::Round($mod.Length / 1MB, 2)
+        if ($fileSizeMB -lt 0.01) {
+            $fileSizeKB = [math]::Round($mod.Length / 1KB, 2)
+            $item.SubItems.Add("$fileSizeKB KB")
+        } else {
+            $item.SubItems.Add("$fileSizeMB MB")
+        }
+        $item.SubItems.Add($mod.FullName)
+        $item.ForeColor = [System.Drawing.Color]::LimeGreen
+        $item.Tag = @{ Enabled = $true; Path = $mod.FullName }
+        $script:modListView.Items.Add($item)
+    }
+    
+    # Get disabled mods (in /mods_disabled folder)
+    $disabledMods = Get-ChildItem -Path $script:modsDisabledPath -Filter "*.jar" -ErrorAction SilentlyContinue
+    foreach ($mod in $disabledMods) {
+        $item = New-Object System.Windows.Forms.ListViewItem($mod.Name)
+        $item.SubItems.Add("DISABLED")
+        $fileSizeMB = [math]::Round($mod.Length / 1MB, 2)
+        if ($fileSizeMB -lt 0.01) {
+            $fileSizeKB = [math]::Round($mod.Length / 1KB, 2)
+            $item.SubItems.Add("$fileSizeKB KB")
+        } else {
+            $item.SubItems.Add("$fileSizeMB MB")
+        }
+        $item.SubItems.Add($mod.FullName)
+        $item.ForeColor = [System.Drawing.Color]::Red
+        $item.Tag = @{ Enabled = $false; Path = $mod.FullName }
+        $script:modListView.Items.Add($item)
+    }
+    
+    # Visual indicator if mods might have conflicts
+    $enabledModNames = $enabledMods | ForEach-Object { $_.BaseName -replace '[-_]\d+.*$', '' }
+    $hasDuplicates = ($enabledModNames | Group-Object | Where-Object { $_.Count -gt 1 }).Count -gt 0
+    
+    if ($hasDuplicates) {
+        # Find items with potential conflicts and mark them yellow
+        foreach ($item in $script:modListView.Items) {
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($item.Text) -replace '[-_]\d+.*$', ''
+            $matchCount = ($enabledModNames | Where-Object { $_ -eq $baseName }).Count
+            
+            if ($matchCount -gt 1 -and $item.Tag.Enabled) {
+                $item.ForeColor = [System.Drawing.Color]::Yellow
+                $item.SubItems[1].Text = "ENABLED (Warning)"
+            }
+        }
+    }
+}
+# =====================
+# Function: Toggle-ModState
+# =====================
+# PURPOSE: Enables or disables the selected mod by moving it between folders
+function Toggle-ModState {
+    if (-not $script:modListView.SelectedItems -or $script:modListView.SelectedItems.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show("Please select a mod first!", "No Selection", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+        return
+    }
+    
+    $selectedItem = $script:modListView.SelectedItems[0]
+    $modData = $selectedItem.Tag
+    $modPath = $modData.Path
+    $modName = [System.IO.Path]::GetFileName($modPath)
+    
+    try {
+        if ($modData.Enabled) {
+            # DISABLE: Move from /mods to /mods_disabled
+            $destinationPath = Join-Path $script:modsDisabledPath $modName
+            Move-Item -Path $modPath -Destination $destinationPath -Force
+            [System.Windows.Forms.MessageBox]::Show("Mod '$modName' has been disabled!", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+        } else {
+            # ENABLE: Move from /mods_disabled to /mods
+            $destinationPath = Join-Path $script:modsPath $modName
+            Move-Item -Path $modPath -Destination $destinationPath -Force
+            [System.Windows.Forms.MessageBox]::Show("Mod '$modName' has been enabled!", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+        }
+        
+        Refresh-ModList
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show("Error toggling mod state: $_", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    }
+}
+
+# =====================
+# Function: Open-ModsFolder
+# =====================
+# PURPOSE: Opens the mods folder in Windows Explorer
+function Open-ModsFolder {
+    if (-not (Test-Path $script:modsPath)) {
+        New-Item -Path $script:modsPath -ItemType Directory -Force | Out-Null
+    }
+    Start-Process explorer.exe -ArgumentList $script:modsPath
+}
+
+# =====================
+# Function: Remove-SelectedMod
+# =====================
+# PURPOSE: Permanently deletes the selected mod after confirmation
+function Remove-SelectedMod {
+    if (-not $script:modListView.SelectedItems -or $script:modListView.SelectedItems.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show("Please select a mod to remove!", "No Selection", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+        return
+    }
+    
+    $selectedItem = $script:modListView.SelectedItems[0]
+    $modData = $selectedItem.Tag
+    $modPath = $modData.Path
+    $modName = [System.IO.Path]::GetFileName($modPath)
+    
+    # Confirmation dialog
+    $result = [System.Windows.Forms.MessageBox]::Show(
+        "Are you sure you want to PERMANENTLY DELETE this mod?`n`nMod: $modName`n`nThis action cannot be undone!",
+        "Confirm Deletion",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Warning
+    )
+    
+    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+        try {
+            Remove-Item -Path $modPath -Force
+            [System.Windows.Forms.MessageBox]::Show("Mod '$modName' has been permanently deleted!", "Deleted", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+            Refresh-ModList
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show("Error deleting mod: $_", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        }
+    }
+}
+
+# =====================
+# Function: Open-CurseForge
+# =====================
+# PURPOSE: Opens the Hytale CurseForge page in the default browser
+function Open-CurseForge {
+    Start-Process "https://www.curseforge.com/hytale"
+}
+
+# =====================
+# Function: Handle-ModDragDrop
+# =====================
+# PURPOSE: Handles files dropped into the mod list view
+function Handle-ModDragDrop {
+    param($sender, $e)
+    
+    $files = $e.Data.GetData([Windows.Forms.DataFormats]::FileDrop)
+    
+    if ($files) {
+        $copiedCount = 0
+        $skippedCount = 0
+        
+        foreach ($file in $files) {
+            if ([System.IO.Path]::GetExtension($file) -eq ".jar") {
+                try {
+                    $fileName = [System.IO.Path]::GetFileName($file)
+                    $destination = Join-Path $script:modsPath $fileName
+                    
+                    if (Test-Path $destination) {
+                        $result = [System.Windows.Forms.MessageBox]::Show(
+                            "Mod '$fileName' already exists. Overwrite?",
+                            "File Exists",
+                            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                            [System.Windows.Forms.MessageBoxIcon]::Question
+                        )
+                        
+                        if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+                            Copy-Item -Path $file -Destination $destination -Force
+                            $copiedCount++
+                        } else {
+                            $skippedCount++
+                        }
+                    } else {
+                        Copy-Item -Path $file -Destination $destination -Force
+                        $copiedCount++
+                    }
+                } catch {
+                    [System.Windows.Forms.MessageBox]::Show(
+                        "Error copying mod: $_",
+                        "Error",
+                        [System.Windows.Forms.MessageBoxButtons]::OK,
+                        [System.Windows.Forms.MessageBoxIcon]::Error
+                    )
+                }
+            } else {
+                $skippedCount++
+            }
+        }
+        
+        if ($copiedCount -gt 0) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Successfully installed $copiedCount mod(s)!`nSkipped: $skippedCount",
+                "Mods Installed",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information
+            )
+            Refresh-ModList
+        } elseif ($skippedCount -gt 0) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "No valid .jar files were added. Only .jar files are supported!",
+                "No Mods Added",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            )
+        }
+    }
+}
+
+# =====================
+# Function: Handle-ModDragEnter
+# =====================
+# PURPOSE: Validates drag-drop operation
+function Handle-ModDragEnter {
+    param($sender, $e)
+    
+    if ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
+        $e.Effect = [Windows.Forms.DragDropEffects]::Copy
+    } else {
+        $e.Effect = [Windows.Forms.DragDropEffects]::None
+    }
+}
+
+# =====================
+# Function: Check-ModConflicts
+# =====================
+# PURPOSE: Checks for potential mod conflicts
+function Check-ModConflicts {
+    $conflicts = @()
+    
+    # Get all enabled mods
+    $enabledMods = Get-ChildItem -Path $script:modsPath -Filter "*.jar" -ErrorAction SilentlyContinue
+    
+    # Simple conflict detection based on similar names
+    foreach ($mod1 in $enabledMods) {
+        foreach ($mod2 in $enabledMods) {
+            if ($mod1.Name -ne $mod2.Name) {
+                # Check if mod names are similar (might be different versions)
+                $name1 = $mod1.BaseName -replace '[-_]\d+.*$', ''
+                $name2 = $mod2.BaseName -replace '[-_]\d+.*$', ''
+                
+                if ($name1 -eq $name2) {
+                    $conflicts += "POSSIBLE CONFLICT: '$($mod1.Name)' and '$($mod2.Name)' appear to be different versions of the same mod"
+                }
+            }
+        }
+    }
+    
+    # Known conflict patterns (you can expand this list)
+    $knownConflicts = @{
+        "OptiFine" = @("Sodium", "Iris")
+        "Sodium" = @("OptiFine")
+        "Iris" = @("OptiFine")
+    }
+    
+    foreach ($mod in $enabledMods) {
+        foreach ($conflictKey in $knownConflicts.Keys) {
+            if ($mod.Name -like "*$conflictKey*") {
+                foreach ($conflictMod in $knownConflicts[$conflictKey]) {
+                    $hasConflict = $enabledMods | Where-Object { $_.Name -like "*$conflictMod*" }
+                    if ($hasConflict) {
+                        $conflicts += "KNOWN CONFLICT: '$($mod.Name)' conflicts with '$($hasConflict.Name)'"
+                    }
+                }
+            }
+        }
+    }
+    
+    if ($conflicts.Count -gt 0) {
+        $conflictMessage = "WARNING: Potential mod conflicts detected:`n`n" + ($conflicts -join "`n`n")
+        [System.Windows.Forms.MessageBox]::Show(
+            $conflictMessage,
+            "Mod Conflicts Detected",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        )
+    } else {
+        [System.Windows.Forms.MessageBox]::Show(
+            "No mod conflicts detected!",
+            "Conflict Check",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+    }
+}
+
+# ==========================================================================================
+# SECTION: THEME SWITCHER FUNCTIONS
+# ==========================================================================================
+
+# =====================
+# Function: Apply-Theme
+# =====================
+# PURPOSE: Applies the selected theme to all GUI elements
+function Apply-Theme {
+    param([string]$themeName)
+    
+    if (-not $script:themes.ContainsKey($themeName)) {
+        [System.Windows.Forms.MessageBox]::Show("Theme '$themeName' not found!", "Error")
+        return
+    }
+    
+    $theme = $script:themes[$themeName]
+    $script:currentTheme = $themeName
+    
+    # Update global color variables
+    $script:colorBack = $theme.Back
+    $script:colorText = $theme.Text
+    $script:colorTextboxBack = $theme.TextboxBack
+    $script:colorTextboxText = $theme.TextboxText
+    $script:colorButtonBack = $theme.ButtonBack
+    $script:colorButtonText = $theme.ButtonText
+    $script:colorConsoleBack = $theme.ConsoleBack
+    $script:colorConsoleText = $theme.ConsoleText
+    
+    # Apply to main form
+    $form.BackColor = $theme.Back
+    
+    # Apply to all tabs
+    foreach ($tab in $tabs.TabPages) {
+        $tab.BackColor = $theme.Back
+        
+        # Apply to all controls in each tab
+        foreach ($control in $tab.Controls) {
+            if ($control -is [System.Windows.Forms.Label]) {
+                $control.ForeColor = $theme.Text
+            }
+            elseif ($control -is [System.Windows.Forms.TextBox] -or $control -is [System.Windows.Forms.RichTextBox]) {
+                if ($control.Name -notlike "*Console*" -and $control.Name -notlike "*Log*") {
+                    $control.BackColor = $theme.TextboxBack
+                    $control.ForeColor = $theme.TextboxText
+                } else {
+                    $control.BackColor = $theme.ConsoleBack
+                    $control.ForeColor = $theme.ConsoleText
+                }
+            }
+            elseif ($control -is [System.Windows.Forms.Button]) {
+                # Don't override special colored buttons (like Delete Mod button)
+                if ($control.BackColor.R -eq 120 -and $control.BackColor.G -eq 40) {
+                    # Keep red delete button
+                    continue
+                }
+                elseif ($control.BackColor.R -eq 240 -and $control.BackColor.G -eq 100) {
+                    # Keep orange CurseForge button
+                    continue
+                }
+                else {
+                    $control.BackColor = $theme.ButtonBack
+                    $control.ForeColor = $theme.ButtonText
+                }
+            }
+            elseif ($control -is [System.Windows.Forms.ListView]) {
+                $control.BackColor = $theme.TextboxBack
+                $control.ForeColor = $theme.TextboxText
+            }
+        }
+    }
+    
+    # Refresh mod list to reapply colors
+    if ($script:modListView) {
+        Refresh-ModList
+    }
+    
+    # Save theme preference
+    Save-Settings
+    
+    [System.Windows.Forms.MessageBox]::Show(
+        "Theme '$themeName' applied successfully!",
+        "Theme Changed",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
+}
+
+# =====================
+# Function: Get-ServerIP
+# =====================
+# PURPOSE: Gets the server's public and local IP addresses
+function Get-ServerIP {
+    try {
+        # Get local IP
+        $localIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne "127.0.0.1" -and $_.PrefixOrigin -eq "Dhcp" } | Select-Object -First 1).IPAddress
+        
+        # Get public IP
+        try {
+            $publicIP = (Invoke-RestMethod -Uri "https://api.ipify.org?format=text" -TimeoutSec 5).Trim()
+        } catch {
+            $publicIP = "Unable to fetch"
+        }
+        
+        # Get server port from config
+        $serverPort = "24454"  # Default Hytale port
+        if (Test-Path $script:configPath) {
+            try {
+                $configContent = Get-Content -Path $script:configPath -Raw | ConvertFrom-Json
+                if ($configContent.port) {
+                    $serverPort = $configContent.port
+                }
+            } catch {
+                # Use default if can't read config
+            }
+        }
+        
+        return @{
+            LocalIP = $localIP
+            PublicIP = $publicIP
+            Port = $serverPort
+        }
+    } catch {
+        return @{
+            LocalIP = "Error"
+            PublicIP = "Error"
+            Port = "24454"
+        }
+    }
+}
+
+# =====================
+# Function: Copy-ServerIP
+# =====================
+# PURPOSE: Copies server IP to clipboard and shows info
+function Copy-ServerIP {
+    $serverInfo = Get-ServerIP
+    
+    $ipText = "$($serverInfo.PublicIP):$($serverInfo.Port)"
+    
+    # Copy to clipboard
+    [System.Windows.Forms.Clipboard]::SetText($ipText)
+    
+    $message = @"
+Server IP Information Copied!
+
+Public IP: $($serverInfo.PublicIP)
+Local IP: $($serverInfo.LocalIP)
+Port: $($serverInfo.Port)
+
+Full Address: $ipText
+
+Share this with friends to connect!
+(Copied to clipboard)
+"@
+    
+    [System.Windows.Forms.MessageBox]::Show(
+        $message,
+        "Server IP",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
+}
+
+# ==========================================================================================
 # SECTION: PRIMARY GUI COMPONENTS
 # ==========================================================================================
 # This section creates the main application window and tab control, which serve as the
@@ -3189,162 +3774,120 @@ $panelCommands.Controls.Add($grpAllCommands)
 # Ensure Hytale command dictionary exists (aliases and sub-commands with detailed tooltips)
 if (-not (Get-Variable -Name hytaleCommands -Scope Script -ErrorAction SilentlyContinue)) {
     $script:hytaleCommands = [ordered]@{
-        "/backup"                = "Create a backup of the server universe folder.`nUsage: /backup"
-        "/block"                = "Block-related commands. Aliases: /blocks.`nSubcommands: set, get, getstate, row, setstate.`nUse: /block <subcommand> ..."
-        "/blocks"               = "Block-related commands. Alias of /block.`nSubcommands: set, get, getstate, row, setstate.`nUse: /blocks <subcommand> ..."
-        "/block set"            = "Set a block.`nUsage: /block set <x y z> <block> [--options]`nArgs: x y z = block position; block = block type/ID`nOptions: --world <name>"
-        "/block get"            = "Get a block.`nUsage: /block get <x y z> [--options]`nArgs: x y z = block position`nOptions: --world <name>"
-        "/block getstate"       = "Get a blockstate.`nUsage: /block getstate <x y z> [--options]`nArgs: x y z = block position`nOptions: --world <name>"
-        "/block row"            = "Spawn base blocks matching a wildcard in a line from your feet in the direction you're facing.`nUsage: /block row <wildcard block query>`nExample: 'Furniture_*_Table'"
-        "/block setstate"       = "Set a block state.`nUsage: /block setstate <x y z> <state> [--options]`nArgs: x y z = block position; state = block state`nOptions: --world <name>"
 
-        "/buildertoolslegend"   = "Show or hide the builder tools legend.`nUsage: /buildertoolslegend [--options]`nOptions: --hide (hide the legend instead of showing it)"
+        # =====================
+        # WORLD / SERVER
+        # =====================
+        "/addworld"            = "Add a new world instance."
+        "/loadworld"           = "Load a world."
+        "/unloadworld"         = "Unload a world."
+        "/world"               = "World management commands."
+        "/worlds"              = "List available worlds."
+        "/worldmap"            = "Toggle or manage world map view."
+        "/worldgen"            = "World generation controls."
+        "/weather"             = "Set or query weather state."
+        "/pause"               = "Pause the game world."
+        "/pausetime"           = "Pause or resume time progression."
+        "/noon"                = "Set time to midday."
+        "/sleepoffset"         = "Adjust sleep time offset."
+        "/tps"                 = "Display server ticks per second."
+        "/pidcheck"            = "Check server process health."
+        "/logs"                = "View or manage server logs."
+        "/maxviewradius"       = "Set max player view distance."
+        "/backup list"         = "List available backups."
+        "/backup restore"      = "Restore a backup."
 
-        "/clearblocks"          = "Set all blocks in your selection to Empty, or all blocks within a specified area.`nUsage (selection): /clearblocks`nUsage (area): /clearblocks <positionOne> <positionTwo>`nArgs (area): positionOne = first corner; positionTwo = opposite corner"
-        "/clear"                = "Alias of /clearblocks. Set all blocks in selection to Empty or within area.`nUsage (selection): /clear`nUsage (area): /clear <positionOne> <positionTwo>"
+        # =====================
+        # PLAYER / ADMIN
+        # =====================
+        "/ban"                 = "Ban a player."
+        "/unban"               = "Unban a player."
+        "/kick"                = "Kick a player from the server."
+        "/mute"                = "Mute a player."
+        "/unmute"              = "Unmute a player."
+        "/sudo"                = "Execute a command as another player."
+        "/perm"                = "Permission management."
+        "/testperm"            = "Test player permissions."
+        "/displayname"         = "Change player display name."
+        "/heal"                = "Heal a player."
+        "/kill"                = "Kill a player or entity."
+        "/unstuck"             = "Teleport player to a safe location."
+        "/top"                 = "Teleport to highest solid block."
+        "/tpall"               = "Teleport all players."
+        "/setpvp"              = "Enable or disable PvP."
 
-        "/clearedithistory"     = "Clear clipboard history.`nUsage: /clearedithistory"
+        # =====================
+        # INVENTORY / ITEMS
+        # =====================
+        "/give"                = "Give items to a player."
+        "/spawnitem"           = "Spawn an item in the world."
+        "/inventoryitem"       = "Modify inventory items."
+        "/inventorybackpack"   = "Access backpack inventory."
+        "/recipe"              = "Manage crafting recipes."
+        "/droplist"            = "Show or edit drop tables."
 
-        "/clearentities"        = "Clear entities (in selection or context).`nUsage: /clearentities"
+        # =====================
+        # ENTITY / NPC
+        # =====================
+        "/summon"              = "Summon an entity."
+        "/despawn"             = "Remove entities."
+        "/dismount"            = "Force dismount from mounts."
+        "/npcpath"             = "Control NPC pathing."
+        "/reputation"          = "Adjust NPC reputation."
+        "/neardeath"           = "Trigger near-death state."
+        "/checkpoint"          = "Set or load player checkpoints."
 
-        "/contractselection"    = "Make your selection smaller in all directions, or by the specified amount along an axis.`nUsage: /contractselection <distance> [--options]`nArgs: distance = integer blocks inwards`nOptions: --axis <x|y|z>"
-        "/contract"             = "Alias of /contractselection.`nUsage: /contract <distance> [--options]`nArgs: distance = integer blocks inwards`nOptions: --axis <x|y|z>"
+        # =====================
+        # BUILDING / BLOCKS
+        # =====================
+        "/blockselect"         = "Select blocks using filters."
+        "/blockset"            = "Set blocks using parameters."
+        "/blockspawner"        = "Spawn blocks programmatically."
+        "/spawnblock"          = "Spawn a specific block."
+        "/chunk"               = "Chunk operations."
+        "/chunklighting"       = "Recalculate chunk lighting."
+        "/copychunk"           = "Copy chunk data."
+        "/forcechunktick"      = "Force chunk updates."
+        "/invalidatelighting"  = "Invalidate lighting cache."
+        "/lightingcalculation" = "Trigger lighting calculation."
+        "/toggleBlockPlacementOverride" = "Override block placement rules."
 
-        "/copy"                 = "Copy the contents of your selection into clipboard.`nUsage: /copy <xMin> <yMin> <zMin> <xMax> <yMax> <zMax> [--options]`nArgs: xMin/yMin/zMin; xMax/yMax/zMax = selection bounds`nOptions: --keepanchors, --empty, --noEntities, --onlyEntities"
-        "/cut"                  = "Cut the contents of your selection into clipboard.`nUsage: /cut <xMin> <yMin> <zMin> <xMax> <yMax> <zMax> [--options]`nArgs: xMin/yMin/zMin; xMax/yMax/zMax = selection bounds`nOptions: --keepanchors, --empty, --noEntities, --onlyEntities"
+        # =====================
+        # PREFABS / EDITING
+        # =====================
+        "/convertprefabs"      = "Convert prefab formats."
+        "/prefabspawner"       = "Spawn prefabs."
+        "/edit"                = "Advanced edit tools."
+        "/editselection"       = "Edit current selection."
+        "/clearhistory"        = "Clear edit history."
 
-        "/deselect"             = "Clear your current selection.`nUsage: /deselect"
-        "/clearselection"       = "Alias of /deselect.`nUsage: /clearselection"
+        # =====================
+        # CAMERA / UI / FX
+        # =====================
+        "/camera"              = "Camera controls."
+        "/camshake"            = "Trigger camera shake."
+        "/hudtest"             = "Test HUD elements."
+        "/eventtitle"          = "Display event title on screen."
+        "/notify"              = "Send notifications."
+        "/particle"            = "Spawn particle effects."
+        "/ambience"            = "Control ambient audio."
+        "/play"                = "Play a sound or animation."
 
-        "/editline"             = "Draw a line of blocks between two points.`nUsage: /editline <start> <end> <material> [--options]`nArgs: start/end = positions (x y z; supports - for relative); material = block material pattern (e.g. Rock_Stone or 'Rock_Stone, Soil_Grass')`nOptions: --origin <Center|Bottom|Top>, --density <1-100>, --wallThickness <0=solid>, --spacing <n>, --height <n>, --width <n>, --shape <Cube|Sphere|Cylinder|Cone|...>"
+        # =====================
+        # SYSTEM / DEBUG
+        # =====================
+        "/auth"                = "Authentication debugging."
+        "/assets"              = "Asset management tools."
+        "/i18n"                = "Localization testing."
+        "/instances"           = "Instance management."
+        "/packetStats"         = "Network packet statistics."
+        "/packs"               = "Resource pack controls."
+        "/setticking"          = "Adjust tick behavior."
+        "/tagpattern"          = "Apply tag patterns."
+        "/toggleTmpTags"       = "Toggle temporary tags."
+        "/validatecpb"         = "Validate clipboard buffer."
+        "/voidevent"           = "Trigger void events."
 
-        "/emote"                = "Play an emote.`nUsage: /emote <emote>`nArgs: emote = emote name"
-
-        "/environment"          = "Set environment in the selected area.`nUsage: /environment`nAliases: /setenvironment, /setenv"
-        "/setenvironment"       = "Alias of /environment.`nUsage: /setenvironment"
-        "/setenv"               = "Alias of /environment.`nUsage: /setenv"
-
-        "/expand"               = "Expand your selection in all directions, or along an axis.`nUsage: /expand [--axis <x|y|z>] [--distance <n>]`nOptions: --axis, --distance"
-
-        "/extendface"           = "Extend the target face (extrusion).`nUsage: /extendface <x> <y> <z> <normalX> <normalY> <normalZ> <toolParam> <shapeRange> <blockType> <xMin> <yMin> <zMin> <xMax> <yMax> <zMax>`nArgs: coordinates, normal, toolParam (extrude depth), shapeRange (radius), blockType key, bounds"
-
-        "/fillblocks"           = "Fill all air in your selection with a pattern.`nUsage: /fillblocks <pattern>`nExamples: [Rock_Stone] or [20%Rock_Stone,80%Rock_Shale] or [50%Rock_Stone|Yaw=90, 50%Fluid_Water]"
-        "/fill"                 = "Alias of /fillblocks.`nUsage: /fill <pattern>"
-
-        "/flip"                 = "Flip the blocks in your clipboard.`nUsage: /flip <direction>`nArgs: direction = Forward|Backward|Left|Right|Up|Down"
-
-        "/gmask"                = "Set the global block mask.`nUsage: /gmask <mask>`nArgs: mask = block mask expression"
-        "/gmask clear"          = "Clear/disable the global block mask.`nUsage: /gmask clear"
-
-        "/help"                 = "Display command help.`nUsage: /help <command>"
-
-        "/hollow"               = "Set the material on the inside of the selection, excluding walls of set thickness.`nUsage: /hollow [--options]`nOptions: --thickness <n> (default 1), --blockType <type> (default air), --perimeter, --roof, --floor"
-
-        "/hotbar"               = "Set or save your hotbar to a slot.`nUsage: /hotbar <hotbarSlot> [--options]`nArgs: hotbarSlot = 0-9`nOptions: --save (save current to slot)"
-
-        "/hub"                  = "Return to the Cosmos of Creativity hub.`nAliases: /converge, /convergence"
-        "/converge"             = "Alias of /hub. Return to the hub."
-        "/convergence"          = "Alias of /hub. Return to the hub."
-
-        "/importimage"          = "Open the image-to-blocks import tool.`nUsage: /importimage"
-        "/importobj"            = "Open the OBJ-to-voxel import tool.`nUsage: /importobj"
-        "/obj"                  = "Alias of /importobj.`nUsage: /obj"
-
-        "/itemstate"            = "Set the state of the item currently held.`nUsage: /itemstate <state>`nArgs: state = item state"
-
-        "/move"                 = "Move your selection and contents by specified amount/direction.`nUsage: /move [<direction> <distance>] [--options]`nArgs: direction, distance"
-
-        "/OP"                   = "Commands for managing operator permissions.`nUsage: /OP ..."
-        "/OP Self"              = "Add yourself to the OP permission group.`nUsage: /OP Self"
-
-        "/paste"                = "Paste the contents of your clipboard.`nUsage: /paste <position> (optional)"
-
-        "/ping"                 = "Network ping information.`nUsage: /ping [--options]`nOptions: --player <name>, --detail"
-        "/ping clear"           = "Clear ping information history.`nUsage: /ping clear [--options]"
-        "/ping graph"           = "Print ping information as a graph.`nUsage: /ping graph [--options]"
-
-        "/pos1"                 = "Set the first position of your selection.`nUsage: /pos1 [--x <n>] [--y <n>] [--Z <n>]`nDefaults to current position if not specified"
-        "/pos2"                 = "Set the second position of your selection.`nUsage: /pos2 [--x <n>] [--y <n>] [--Z <n>]`nDefaults to current position if not specified"
-
-        "/prefab save"          = "Save a prefab.`nUsage: /prefab save"
-        "/prefab load"          = "Load a prefab.`nUsage: /prefab load"
-        "/prefab delete"        = "Delete a prefab.`nUsage: /prefab delete <name> [--options]"
-        "/prefab list"          = "List prefabs.`nUsage: /prefab list [--options]"
-
-        "/p save"               = "Alias of /prefab save.`nUsage: /p save"
-        "/p load"               = "Alias of /prefab load.`nUsage: /p load"
-        "/p delete"             = "Alias of /prefab delete.`nUsage: /p delete <name> [--options]"
-        "/p list"               = "Alias of /prefab list.`nUsage: /p list [--options]"
-
-        "/redo"                 = "Redo last change.`nUsage: /redo [<count>]"
-        "/r"                    = "Alias of /redo.`nUsage: /r [<count>]"
-
-        "/repairfillers"        = "Repair filler blocks in selection.`nUsage: /repairfillers"
-
-        "/replace"              = "Replace blocks in selection.`nUsage: /replace <to> [--options] <from>`nArgs: to = block type to replace with; from = block(s) to match`nOptions: --substringSwap, --regex"
-        
-        "/rotate"               = "Rotate your clipboard.`nUsage: /rotate <angle> [options]`nOr: /rotate <yaw> <pitch> <roll>"
-
-        "/say "                  = "Send a message to all players.`nUsage: /say <message>`nArgs: message = text to send"
-
-        "/selectchunk"          = "Select a chunk.`nUsage: /selectchunk"
-        "/selectchunksection"   = "Select a chunk section.`nUsage: /selectchunksection"
-
-        "/selectionhistory"     = "Record selection box changes in undo/redo history.`nUsage: /selectionhistory <enabled>`nArgs: enabled = true/false"
-
-        "/setblocks"            = "Set all blocks in your selection to a pattern.`nUsage: /setblocks <pattern>`nExamples: [Rock_Stone] or [20%Rock_Stone,80%Rock_Shale] or [50%Rock_Stone|Yaw=90, 50%Fluid_Water]"
-        "/set"                  = "Alias of /setblocks.`nUsage: /set <pattern>"
-
-        "/settoolhistorysize"   = "Set builder tool history size.`nUsage: /settoolhistorysize <historyLength>`nArgs: historyLength = max actions stored"
-
-        "/shift"                = "Shift selection.`nUsage: /shift [--axis <x|y|z>] [--distance <n>]`nOptions: --axis, --distance"
-
-        "/stop "                 = "Stop the server gracefully.`nUsage: /stop"
-
-        "/stack"                = "Stack selection.`nUsage: /stack <direction> <count> [--spacing <n>] [--empty]`nOptions: --spacing, --empty (stack only empty blocks)"
-
-        "/submerge"             = "Submerge the selection with a fluid (use 'Empty' to unsubmerge).`nUsage: /submerge <fluid-item>`nArgs: fluid-item = fluid type"
-        "/flood"                = "Alias of /submerge.`nUsage: /flood <fluid-item>"
-
-        "/time"                 = "Get the world time.`nUsage: /time [--world <name>]"
-        "/time daytime"         = "Set the world time.`nUsage: /time daytime <time> [--world <name>]`nArgs: time = hour (0-24)"
-
-        "/tint"                 = "Tint the selection with a color.`nUsage: /tint <color>`nArgs: color = color value/name"
-
-        "/tp"                   = "Teleport commands (player/location). Alias: /teleport.`nSubcommands: home, top, back, forward, history"
-        "/teleport"             = "Teleport commands (player/location). Alias of /tp.`nSubcommands: home, top, back, forward, history"
-
-        "/tp home"              = "Teleport you to your home.`nUsage: /tp home"
-        "/teleport home"        = "Alias of /tp home.`nUsage: /teleport home"
-
-        "/tp top"               = "Teleport to the highest block above you.`nUsage: /tp top"
-        "/teleport top"         = "Alias of /tp top.`nUsage: /teleport top"
-
-        "/tp back"              = "Teleport to the most recent teleport location.`nUsage: /tp back [--count <n>]`nOptions: --count = steps back"
-        "/teleport back"        = "Alias of /tp back.`nUsage: /teleport back [--count <n>]"
-
-        "/tp forward"           = "Teleport to the next teleport location.`nUsage: /tp forward [--count <n>]`nOptions: --count = steps forward"
-        "/teleport forward"     = "Alias of /tp forward.`nUsage: /teleport forward [--count <n>]"
-
-        "/tp history"           = "Dump teleport history to console.`nUsage: /tp history"
-        "/teleport history"     = "Alias of /tp history.`nUsage: /teleport history"
-
-        "/undo"                 = "Undo last change.`nUsage: /undo [<count>]`nArgs: count = number of operations to undo"
-        "/u"                    = "Alias of /undo.`nUsage: /u [<count>]"
-
-        "/updateselection"      = "Update selection bounds.`nUsage: /updateselection <xMin> <yMin> <zMin> <xMax> <yMax> <zMax>"
-
-        "/wall"                 = "Set wall material with thickness for selection.`nAliases: /side, /walls, /sides`nUsage: /wall <pattern> [--options]`nOptions: --thickness <n> (default 1), --perimeter, --roof, --floor"
-        "/side"                 = "Alias of /wall.`nUsage: /side <pattern> [--options]"
-        "/walls"                = "Alias of /wall.`nUsage: /walls <pattern> [--options]"
-        "/sides"                = "Alias of /wall.`nUsage: /sides <pattern> [--options]"
-
-        "/whereami"             = "Print the current location of a player.`nUsage: /whereami"
-
-        "/who"                  = "List who is on the server.`nUsage: /who"
-
-        "/whoami"               = "Print your player information (or another player's).`nUsage: /whoami [<player>]"
-        "/uuid"                 = "Alias of /whoami.`nUsage: /uuid [<player>]"
     }
 }
 
@@ -3462,6 +4005,57 @@ $btnSavePermissions.Size = New-Object System.Drawing.Size(180, 30)
 Style-Button $btnSavePermissions
 $btnSavePermissions.Add_Click({ Save-Permissions })
 $tabConfig.Controls.Add($btnSavePermissions)
+
+# =====================
+# THEME SWITCHER SECTION
+# =====================
+
+$lblThemeTitle = New-Object System.Windows.Forms.Label
+$lblThemeTitle.Text = "Theme Selector:"
+$lblThemeTitle.Location = New-Object System.Drawing.Point(790, 200)
+$lblThemeTitle.Size = New-Object System.Drawing.Size(180, 20)
+$lblThemeTitle.ForeColor = $colorText
+$lblThemeTitle.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$tabConfig.Controls.Add($lblThemeTitle)
+
+$cmbTheme = New-Object System.Windows.Forms.ComboBox
+$cmbTheme.Location = New-Object System.Drawing.Point(790, 225)
+$cmbTheme.Size = New-Object System.Drawing.Size(180, 25)
+$cmbTheme.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+$cmbTheme.BackColor = $colorTextboxBack
+$cmbTheme.ForeColor = $colorTextboxText
+$cmbTheme.Items.AddRange(@("Dark", "Light", "Blue", "Purple"))
+$cmbTheme.SelectedItem = "Dark"
+$tabConfig.Controls.Add($cmbTheme)
+
+$btnApplyTheme = New-Object System.Windows.Forms.Button
+$btnApplyTheme.Text = "Apply Theme"
+$btnApplyTheme.Location = New-Object System.Drawing.Point(790, 260)
+$btnApplyTheme.Size = New-Object System.Drawing.Size(180, 35)
+$btnApplyTheme.BackColor = [System.Drawing.Color]::FromArgb(100, 50, 150)
+$btnApplyTheme.ForeColor = [System.Drawing.Color]::White
+$btnApplyTheme.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnApplyTheme.Add_Click({ 
+    $selectedTheme = $cmbTheme.SelectedItem
+    if ($selectedTheme) {
+        Apply-Theme $selectedTheme
+    }
+})
+$tabConfig.Controls.Add($btnApplyTheme)
+
+$lblThemePreview = New-Object System.Windows.Forms.Label
+$lblThemePreview.Text = @"
+Themes Available:
+- Dark (Default)
+- Light (Bright)
+- Blue (Cool)
+- Purple (Stylish)
+"@
+$lblThemePreview.Location = New-Object System.Drawing.Point(790, 305)
+$lblThemePreview.Size = New-Object System.Drawing.Size(180, 80)
+$lblThemePreview.ForeColor = [System.Drawing.Color]::LightGray
+$lblThemePreview.Font = New-Object System.Drawing.Font("Arial", 8)
+$tabConfig.Controls.Add($lblThemePreview)
 
 # =====================
 # SERVER MAINTENANCE TAB (MERGED)
@@ -3645,6 +4239,29 @@ $txtUpdateLog.Size = New-Object System.Drawing.Size(960, 230)
 $tabMaintenance.Controls.Add($txtUpdateLog)
 
 # =====================
+# SERVER IP SECTION
+# =====================
+
+$lblServerIPTitle = New-Object System.Windows.Forms.Label
+$lblServerIPTitle.Text = "Server IP Address:"
+$lblServerIPTitle.Location = New-Object System.Drawing.Point(780, 50)
+$lblServerIPTitle.Size = New-Object System.Drawing.Size(150, 20)
+$lblServerIPTitle.ForeColor = $colorText
+$lblServerIPTitle.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$tabMaintenance.Controls.Add($lblServerIPTitle)
+
+$btnCopyServerIP = New-Object System.Windows.Forms.Button
+$btnCopyServerIP.Text = "Copy Server IP"
+$btnCopyServerIP.Location = New-Object System.Drawing.Point(780, 75)
+$btnCopyServerIP.Size = New-Object System.Drawing.Size(180, 40)
+$btnCopyServerIP.BackColor = [System.Drawing.Color]::FromArgb(50, 150, 50)
+$btnCopyServerIP.ForeColor = [System.Drawing.Color]::White
+$btnCopyServerIP.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$btnCopyServerIP.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnCopyServerIP.Add_Click({ Copy-ServerIP })
+$tabMaintenance.Controls.Add($btnCopyServerIP)
+
+# =====================
 # CHECK FILES SECTION - NOW BETWEEN DOWNLOADER UTILS AND LOG BUTTONS
 # =====================
 
@@ -3731,25 +4348,207 @@ $lblOverallStatus.Location = New-Object System.Drawing.Point(700, 210)  # WAS 56
 $lblOverallStatus.ForeColor = [System.Drawing.Color]::Orange
 $tabMaintenance.Controls.Add($lblOverallStatus)
 
+# =====================
+# MOD MANAGER TAB
+# =====================
+
+$tabModManager = New-Object System.Windows.Forms.TabPage
+$tabModManager.Text = "Mod Manager"
+$tabModManager.BackColor = $colorBack
+$tabs.TabPages.Add($tabModManager)
+
+# Title Label
+$lblModManagerTitle = New-Object System.Windows.Forms.Label
+$lblModManagerTitle.Text = "HYTALE MOD MANAGER"
+$lblModManagerTitle.Location = New-Object System.Drawing.Point(10, 10)
+$lblModManagerTitle.Size = New-Object System.Drawing.Size(500, 30)
+$lblModManagerTitle.ForeColor = $colorText
+$lblModManagerTitle.Font = New-Object System.Drawing.Font("Arial", 14, [System.Drawing.FontStyle]::Bold)
+$tabModManager.Controls.Add($lblModManagerTitle)
+
+# Subtitle
+$lblModManagerSubtitle = New-Object System.Windows.Forms.Label
+$lblModManagerSubtitle.Text = "Drag .jar files into the list or use the buttons to manage mods"
+$lblModManagerSubtitle.Location = New-Object System.Drawing.Point(10, 45)
+$lblModManagerSubtitle.Size = New-Object System.Drawing.Size(600, 20)
+$lblModManagerSubtitle.ForeColor = [System.Drawing.Color]::LightGray
+$lblModManagerSubtitle.Font = New-Object System.Drawing.Font("Arial", 9)
+$tabModManager.Controls.Add($lblModManagerSubtitle)
+
+# =====================
+# INSTALLED MODS LIST (ListView)
+# =====================
+
+$script:modListView = New-Object System.Windows.Forms.ListView
+$script:modListView.Location = New-Object System.Drawing.Point(10, 75)
+$script:modListView.Size = New-Object System.Drawing.Size(750, 520)
+$script:modListView.View = [System.Windows.Forms.View]::Details
+$script:modListView.FullRowSelect = $true
+$script:modListView.GridLines = $true
+$script:modListView.BackColor = $colorTextboxBack
+$script:modListView.ForeColor = $colorTextboxText
+$script:modListView.Font = New-Object System.Drawing.Font("Consolas", 9)
+
+# Enable drag-and-drop
+$script:modListView.AllowDrop = $true
+$script:modListView.Add_DragEnter({ Handle-ModDragEnter $_ $args[1] })
+$script:modListView.Add_DragDrop({ Handle-ModDragDrop $_ $args[1] })
+
+# Add columns
+$script:modListView.Columns.Add("Mod Name", 300) | Out-Null
+$script:modListView.Columns.Add("Status", 100) | Out-Null
+$script:modListView.Columns.Add("File Size", 80) | Out-Null
+$script:modListView.Columns.Add("File Path", 260) | Out-Null
+
+$tabModManager.Controls.Add($script:modListView)
+
+# =====================
+# CONTROL BUTTONS (Right Panel)
+# =====================
+
+$btnRefreshMods = New-Object System.Windows.Forms.Button
+$btnRefreshMods.Text = "Refresh List"
+$btnRefreshMods.Location = New-Object System.Drawing.Point(770, 75)
+$btnRefreshMods.Size = New-Object System.Drawing.Size(200, 40)
+Style-Button $btnRefreshMods
+$btnRefreshMods.Add_Click({ Refresh-ModList })
+$tabModManager.Controls.Add($btnRefreshMods)
+
+$btnToggleMod = New-Object System.Windows.Forms.Button
+$btnToggleMod.Text = "Enable / Disable Mod"
+$btnToggleMod.Location = New-Object System.Drawing.Point(770, 125)
+$btnToggleMod.Size = New-Object System.Drawing.Size(200, 40)
+Style-Button $btnToggleMod
+$btnToggleMod.Add_Click({ Toggle-ModState })
+$tabModManager.Controls.Add($btnToggleMod)
+
+$btnOpenModsFolder = New-Object System.Windows.Forms.Button
+$btnOpenModsFolder.Text = "Open Mods Folder"
+$btnOpenModsFolder.Location = New-Object System.Drawing.Point(770, 175)
+$btnOpenModsFolder.Size = New-Object System.Drawing.Size(200, 40)
+Style-Button $btnOpenModsFolder
+$btnOpenModsFolder.Add_Click({ Open-ModsFolder })
+$tabModManager.Controls.Add($btnOpenModsFolder)
+
+$btnRemoveMod = New-Object System.Windows.Forms.Button
+$btnRemoveMod.Text = "Delete Mod (Permanent)"
+$btnRemoveMod.Location = New-Object System.Drawing.Point(770, 225)
+$btnRemoveMod.Size = New-Object System.Drawing.Size(200, 40)
+$btnRemoveMod.BackColor = [System.Drawing.Color]::FromArgb(120, 40, 40)
+$btnRemoveMod.ForeColor = $colorButtonText
+$btnRemoveMod.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnRemoveMod.Add_Click({ Remove-SelectedMod })
+$tabModManager.Controls.Add($btnRemoveMod)
+
+$btnCheckConflicts = New-Object System.Windows.Forms.Button
+$btnCheckConflicts.Text = "Check for Conflicts"
+$btnCheckConflicts.Location = New-Object System.Drawing.Point(770, 275)
+$btnCheckConflicts.Size = New-Object System.Drawing.Size(200, 35)
+$btnCheckConflicts.BackColor = [System.Drawing.Color]::FromArgb(100, 100, 40)
+$btnCheckConflicts.ForeColor = $colorButtonText
+$btnCheckConflicts.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnCheckConflicts.Add_Click({ Check-ModConflicts })
+$tabModManager.Controls.Add($btnCheckConflicts)
+
+# Separator
+$lblSeparator = New-Object System.Windows.Forms.Label
+$lblSeparator.Text = "----------------------------------------"
+$lblSeparator.Location = New-Object System.Drawing.Point(770, 320)
+$lblSeparator.Size = New-Object System.Drawing.Size(200, 20)
+$lblSeparator.ForeColor = [System.Drawing.Color]::Gray
+$tabModManager.Controls.Add($lblSeparator)
+
+# =====================
+# ONLINE REPOSITORY SECTION
+# =====================
+
+$lblOnlineRepo = New-Object System.Windows.Forms.Label
+$lblOnlineRepo.Text = "Browse Online Mods"
+$lblOnlineRepo.Location = New-Object System.Drawing.Point(770, 345)
+$lblOnlineRepo.Size = New-Object System.Drawing.Size(200, 20)
+$lblOnlineRepo.ForeColor = $colorText
+$lblOnlineRepo.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$tabModManager.Controls.Add($lblOnlineRepo)
+
+$btnCurseForge = New-Object System.Windows.Forms.Button
+$btnCurseForge.Text = "Open CurseForge"
+$btnCurseForge.Location = New-Object System.Drawing.Point(770, 370)
+$btnCurseForge.Size = New-Object System.Drawing.Size(200, 40)
+$btnCurseForge.BackColor = [System.Drawing.Color]::FromArgb(240, 100, 20)
+$btnCurseForge.ForeColor = [System.Drawing.Color]::White
+$btnCurseForge.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnCurseForge.Add_Click({ Open-CurseForge })
+$tabModManager.Controls.Add($btnCurseForge)
+
+# =====================
+# MOD NOTES SECTION
+# =====================
+
+$lblNotesTitle = New-Object System.Windows.Forms.Label
+$lblNotesTitle.Text = "Mod Notes / Description:"
+$lblNotesTitle.Location = New-Object System.Drawing.Point(770, 425)
+$lblNotesTitle.Size = New-Object System.Drawing.Size(200, 20)
+$lblNotesTitle.ForeColor = $colorText
+$lblNotesTitle.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$tabModManager.Controls.Add($lblNotesTitle)
+
+$script:txtModNotes = New-Object System.Windows.Forms.TextBox
+$script:txtModNotes.Multiline = $true
+$script:txtModNotes.ScrollBars = "Vertical"
+$script:txtModNotes.Location = New-Object System.Drawing.Point(770, 450)
+$script:txtModNotes.Size = New-Object System.Drawing.Size(200, 110)
+$script:txtModNotes.BackColor = $colorTextboxBack
+$script:txtModNotes.ForeColor = $colorTextboxText
+$script:txtModNotes.Font = New-Object System.Drawing.Font("Consolas", 8)
+$script:txtModNotes.Text = "Select a mod to view or edit notes..."
+$script:txtModNotes.ReadOnly = $true
+$tabModManager.Controls.Add($script:txtModNotes)
+
+$btnSaveNotes = New-Object System.Windows.Forms.Button
+$btnSaveNotes.Text = "Save Notes"
+$btnSaveNotes.Location = New-Object System.Drawing.Point(770, 565)
+$btnSaveNotes.Size = New-Object System.Drawing.Size(200, 30)
+Style-Button $btnSaveNotes
+$btnSaveNotes.Add_Click({ Update-ModNotes })
+$tabModManager.Controls.Add($btnSaveNotes)
+
+# Add event to show notes when mod is selected
+$script:modListView.Add_SelectedIndexChanged({ Show-ModNotes })
+
+# =====================
+# QUICK TIPS (Bottom)
+# =====================
+
+$lblQuickTips = New-Object System.Windows.Forms.Label
+$lblQuickTips.Text = "TIP: Drag .jar files directly into the list! | GREEN=Enabled | RED=Disabled | YELLOW=Conflict Warning"
+$lblQuickTips.Location = New-Object System.Drawing.Point(10, 605)
+$lblQuickTips.Size = New-Object System.Drawing.Size(750, 20)
+$lblQuickTips.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 150)
+$lblQuickTips.Font = New-Object System.Drawing.Font("Arial", 8, [System.Drawing.FontStyle]::Italic)
+$tabModManager.Controls.Add($lblQuickTips)
 
 # =====================
 # RUN GUI SETUP
 # =====================
 
 # Disable maximize and minimize buttons since resizing breaks the UI
-$form.MinimizeBox = $false
+$form.MinimizeBox = $true
 $form.MaximizeBox = $false
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedSingle
 $form.AutoScroll = $true
 $tabServer.AutoScroll = $true
 $tabConfig.AutoScroll = $true
 $tabMaintenance.AutoScroll = $true
+$tabModManager.AutoScroll = $true
 
 # Load initial config if present
 Load-Config
 
 # Initial file check
 Check-ServerFiles
+
+# Initial mod list population
+Refresh-ModList
 
 # Create tray icon (for minimize-to-tray)
 Create-TrayIcon
