@@ -1399,52 +1399,6 @@ function Monitor-ServerHealth {
         })
         $script:whoMonitorTimer.Start()
     }
-
-    # Check if process actually exists and hasn't exited
-    if (-not $script:serverProcess -or $script:serverProcess.HasExited) {
-        $txtConsole.AppendText("[WARN] Server process not found - attempting restart...`r`n")
-        Restart-Server
-        return
-    }
-
-    try {
-        # SIMPLIFIED APPROACH: Just check if the process is still alive and responding
-        # If the process exists and hasn't exited, assume it's healthy
-        
-        # Try to write to StandardInput - if this fails, process is dead
-        $script:serverProcess.StandardInput.WriteLine("")
-        
-        # Check if process is still running
-        if (-not $script:serverProcess.HasExited) {
-            # Process is alive and accepting input - consider it healthy
-            if ($script:pingFailCount -gt 0) {
-                $txtConsole.AppendText("[INFO] Server health check passed`r`n")
-            }
-            $script:pingFailCount = 0
-        } else {
-            # Process has exited
-            $script:pingFailCount++
-            $txtConsole.AppendText("[WARN] Server process exited - attempt $($script:pingFailCount)/5`r`n")
-            
-            if ($script:pingFailCount -ge 5) {
-                $txtConsole.AppendText("[ERROR] Server stopped responding - initiating restart...`r`n")
-                $script:pingFailCount = 0
-                Restart-Server
-            }
-        }
-        
-    } catch {
-        # If we can't write to StandardInput, the process is likely dead
-        $script:pingFailCount++
-        $txtConsole.AppendText("[WARN] Server health check failed - attempt $($script:pingFailCount)/5`r`n")
-        $txtConsole.AppendText("[DEBUG] Error: $_`r`n")
-        
-        if ($script:pingFailCount -ge 5) {
-            $txtConsole.AppendText("[ERROR] Server not responding - initiating auto-restart...`r`n")
-            $script:pingFailCount = 0
-            Restart-Server
-        }
-    }
 }
 
 # =====================
@@ -2289,6 +2243,13 @@ function Stop-Server {
     }
     $script:pingFailCount = 0
 
+        # STOP auto-restart timer FIRST
+    if ($script:autoRestartTimer) {
+        try { $script:autoRestartTimer.Stop() } catch {}
+        try { $script:autoRestartTimer.Dispose() } catch {}
+        $script:autoRestartTimer = $null
+    }
+
     # Step 2: Initiate backup before shutdown
     if ($script:serverProcess -and -not $script:serverProcess.HasExited) {
         try {
@@ -2330,14 +2291,12 @@ function Stop-Server {
         }
     }
 
-    # Step 3: Kill the running server process if it exists
-    try {
-        if ($script:serverProcess -and -not $script:serverProcess.HasExited) {
-            $txtConsole.AppendText("[INFO] Stopping server process...`r`n")
-            $script:serverProcess.Kill()
-            $script:serverProcess.WaitForExit()
-        }
-    } catch {}
+    # Step 8: Stop and dispose any old-style fallback log timer
+    if ($script:logTimer) {
+        try { $script:logTimer.Stop() } catch {}
+        try { $script:logTimer.Dispose() } catch {}
+        $script:logTimer = $null
+    }
 
     # Step 4: Dispose CPU performance counter
     if ($script:cpuCounter) {
@@ -2372,6 +2331,15 @@ function Stop-Server {
         $script:logTimer = $null
     }
 
+        # Step 3: Kill the running server process if it exists
+    try {
+        if ($script:serverProcess -and -not $script:serverProcess.HasExited) {
+            $txtConsole.AppendText("[INFO] Stopping server process...`r`n")
+            $script:serverProcess.StandardInput.WriteLine("stop")
+            $script:serverProcess.WaitForExit(15000)
+        }
+    } catch {}
+
     # Step 9: Unregister server stdout/stderr event handlers
     if ($script:serverOutReg) {
         try { Unregister-Event -SubscriptionId $script:serverOutReg.Id -ErrorAction SilentlyContinue } catch {}
@@ -2381,6 +2349,7 @@ function Stop-Server {
         try { Unregister-Event -SubscriptionId $script:serverErrReg.Id -ErrorAction SilentlyContinue } catch {}
         $script:serverErrReg = $null
     }
+
 
     # Step 10: Reset server state variables and update GUI
     $script:serverRunning = $false
