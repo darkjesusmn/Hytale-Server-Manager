@@ -2,158 +2,148 @@
 
 **This program was full made by AI LLM's ChatGPT, ClaudeAI, Copilot, qwen:14b, qen 2.5-coder:14b. ZERO CODE WAS MADE BY A HUMAN**
 
-## **1. Installation Guide**
 
-### **Prerequisites**
-- **Windows Operating System** (tested on Windows 10/11)
-- **hytale-downloader-windows-amd64.exe** (place in the same directory as the script)
 
-### **Steps to Install and Run**
-1. **Download the Script and Downloader**
-   - Download the `HytaleServerManager.ps1` script from the provided source.
-   - Place file in the same directory as your server(e.g., `C:\HytaleServer`).
+## Overview
+Hytale Server Manager (DJMN) is a PowerShell-based GUI for managing Hytale servers. It provides:
 
-2. **Run the Script**
-   - **Right-click** the `HytaleServerManager.ps1` file.
-   - Select **"Run with PowerShell"** from the context menu.
-   - **No admin permissions are required** for this step.
+- Easy start/stop/restart control for your server
+- Console log viewing and server command execution
+- Configuration editing
+- Mod management
+- Automatic download of required server files and downloader executable
 
-3. ## 🟢 First-Time Setup for Hytale Server Manager
+The GUI is fully **zero-state safe**, meaning it can launch and display all tabs even if no server files, config, or logs exist.
 
-### 1️⃣ Launch the Manager for the First Time
-- Open **Hytale_Server_Manager_DJMN.ps1** in PowerShell.  
+---
+
+## Table of Contents
+1. [First-Time Setup](#first-time-setup)
+2. [Control Tab](#control-tab)
+3. [Console Tab](#console-tab)
+4. [Configuration Tab](#configuration-tab)
+5. [Mod Manager Tab](#mod-manager-tab)
+6. [Troubleshooting](#troubleshooting)
+7. [Tips & Recommendations](#tips--recommendations)
+
+---
+
+## 1️⃣ First-Time Setup
+
+### Step 1: Launch the Manager
+- Open `Hytale_Server_Manager_DJMN.ps1` in PowerShell.  
 - The GUI will launch even if no files or folders exist.  
-- You’ll see warnings that required server files are missing — this is normal.  
+- Warnings will appear about missing server files — this is normal.
 
----
-
-### 2️⃣ Download the Server Downloader
+### Step 2: Download the Server Downloader
 - Click the **“Update Downloader”** button.  
-- This downloads the `hytale-downloader-windows-amd64.exe` file required to fetch the server.  
-- The GUI remains fully functional during this process.
+- Downloads the `hytale-downloader-windows-amd64.exe` file.  
+- GUI remains functional while downloading.
+
+### Step 3: Download Server Files
+- Click **“Update Server”**.  
+- The downloader will prompt for an **authorization code/link**.  
+- Follow instructions to authorize your account.  
+- Server files (`HytaleServer.jar`, `Assets.zip`, config skeletons, etc.) are downloaded and extracted.  
+- Your server folder is now fully populated.
+
+### Step 4: Start the Server
+- Use the **Control Tab** to click **Start Server**.  
+- Server logs appear in the console tab.  
+- The server may prompt for a new authorization link — follow it to complete the connection to Hytale’s network.
+
+### Step 5: Optional Authentication
+- In the **Console Tab**, click the **`/auth login device`** button to generate the authorization link automatically, without typing the command manually.
 
 ---
 
-### 3️⃣ Download the Server Files
-- Click the **“Update Server”** button.  
-- The downloader executable will open a window asking for an **authorization code/link**.  
-- Follow the instructions in the window to authorize your account.  
-- The downloader will fetch and extract **all necessary server files**, including:
-  - `HytaleServer.jar`  
-  - `Assets.zip`  
-  - Config skeletons and folders  
-- At this point, your server folder is fully populated and ready for first launch.
+## 2️⃣ Control Tab
+The **Control Tab** allows you to manage the server lifecycle:
+
+| Button | Function | Notes |
+|--------|---------|-------|
+| Start Server | Launches the Hytale server | Disabled if server files are missing |
+| Stop Server | Stops the running server process | Disabled if no server is running |
+| Restart Server | Stops and then starts the server | Shows warning if server files are missing |
+
+**Zero-State Behavior:**  
+- Buttons show warnings if server files are missing.  
+- No crashes occur when server isn’t running.  
 
 ---
 
-### 4️⃣ Start the Server
-- Go to the **Control tab** and click **Start Server**.  
-- The console tab will show server logs.  
-- The server will start and may prompt for a new **authorization link** to connect to Hytale’s official server network.  
-- Follow the link to complete authorization.
+## 3️⃣ Console Tab
+The **Console Tab** allows you to view live logs and send commands to the server.
+
+### Components:
+- **Log Output Textbox**: Displays real-time server logs.
+- **Command Textbox**: Type commands to send to the server.
+- **Send Button**: Sends the command in the textbox.
+- **`/auth login device` Button**: Sends the command to generate an authorization link automatically.
+
+**Notes:**
+- If the server is not running, the buttons display warnings instead of failing.
+- Logs update live as the server writes to its stdout.
 
 ---
 
-### 5️⃣ Optional: Authenticate the Server Easily
-- In the **Console tab**, a new **`/auth login device`** button allows you to send the command automatically.  
-- This generates the authorization link for connecting your server to Hytale servers without manually typing it.
+## 4️⃣ Configuration Tab
+The **Configuration Tab** allows you to view and edit `config.json`.
+
+### Features:
+- **Config Editor**: Shows the contents of `config.json`.  
+- **Save / Apply Buttons**: Write changes back to `config.json`.  
+
+**Zero-State Behavior:**
+- If `config.json` doesn’t exist, the editor is empty.  
+- Saving will create a new config file if none exists.  
 
 ---
 
-### ✅ Notes
-- All tabs (Control, Config, Mod Manager) are **fully zero-state safe** — the GUI won’t crash if files are missing.  
-- Warnings are displayed instead of failing silently.  
-- After this setup, you can start, stop, and configure the server fully through the manager.  
+## 5️⃣ Mod Manager Tab
+The **Mod Manager Tab** allows you to manage installed mods.
 
+### Features:
+- Shows contents of `mods/` and `mods_disabled/` folders.  
+- Allows enabling/disabling mods without editing files manually.
 
----
-
-## **2. Key Features Overview**
-
-### **A. Server Control**
-- **Start/Stop/Restart Server**: Buttons to manage the server lifecycle.
-- **RAM Configuration**: Sliders to set minimum and maximum RAM allocation for the server.
-- **Console Management**: Real-time server console output with options to **clear**, **save**, or **copy** logs.
-
-### **B. Configuration Editor**
-- **Edit `config.json` and `permissions.json`**: Rich text editor for server configuration and permissions.
-- **Save/Load Configurations**: Buttons to save changes or reload the current configuration.
-
-### **C. Server Maintenance**
-- **Check Required Files**: Validates the presence of essential files (e.g., `HytaleServer.jar`, `Assets.zip`, `config.json`).
-- **Update Server**: Uses the `hytale-downloader` to fetch the latest server files. **Must be initiated manually**.
-- **Update Log**: Displays logs from the update process, including success/failure messages.
-
-### **D. Admin & World Commands**
-- **Predefined Command Buttons**: Quick access to common admin and world commands (e.g., `/ban`, `/tp`, `/time`).
-- **Custom Command Input**: Type and send custom commands directly to the server.
+**Zero-State Behavior:**
+- Empty folders are handled gracefully.  
+- GUI does not crash if no mods are installed.
 
 ---
 
-## **3. How to Use the Program**
+## 6️⃣ Troubleshooting
 
-### **Step 1: Launch the GUI**
-- Right-click the script and select **"Run with PowerShell"**.
-- The GUI will open, but **no server files will be downloaded automatically**.
+### Common Issues:
+1. **Server Won’t Start**
+   - Ensure `HytaleServer.jar` and `Assets.zip` exist in the script folder.
+   - Use **Update Server** to download missing files.
 
-### **Step 2: Download Server Files (First-Time Use)**
-- Navigate to the **"Server Maintenance"** tab.
-- Click the **"Update Server"** button.
-  - This will:
-    - Stop the server if it's running.
-    - Use the `hytale-downloader` to download the latest server files.
-    - Display progress in the **"Update Log"** textbox.
-  - **Note**: This step is required for **first-time use** or **updates**.
+2. **Authorization Needed**
+   - Use the `/auth login device` button in the console tab to generate the link.
 
-### **Step 3: Start the Server**
-- After downloading files, click the **"Start Server"** button.
-- The server will launch with the configured RAM settings.
-- Monitor the **"Main Console"** for server output and logs.
+3. **Button Clicks Do Nothing**
+   - Check that the server is running when sending commands.
+   - GUI warnings indicate missing files or inactive server.
 
-### **Step 4: Manage Server Settings**
-- **Adjust RAM**: Use the sliders to set minimum and maximum RAM for the server.
-- **Edit Configurations**: Click **"Load Configuration"** to view or edit `config.json`/`permissions.json`.
-
-### **Step 5: Monitor Server Health**
-- The GUI will automatically monitor:
-  - **CPU/RAM Usage** (real-time updates).
-  - **Player Count** (from server logs).
-  - **Server Uptime** (since last start).
-- If the server becomes unresponsive, the **"Health Monitor"** will automatically **restart it** after 5 failed ping attempts.
+4. **PowerShell Errors on Launch**
+   - Ensure you are running in **STA mode**:  
+     ```powershell
+     powershell -sta -file Hytale_Server_Manager_DJMN.ps1
+     ```
 
 ---
 
-## **4. Troubleshooting Common Issues**
-
-### **A. Missing Files After First Launch**
-- **Cause**: You forgot to click the **"Update Server"** button.
-- **Fix**: Navigate to the **"Server Maintenance"** tab and click **"Update Server"**.
-
-### **B. "Downloader Not Found" Error**
-- **Cause**: The `hytale-downloader-windows-amd64.exe` is not in the same directory as the script.
-- **Fix**: Place the downloader in the same folder as the script and rerun the update.
-
-### **C. Server Fails to Start**
-- **Cause**: Missing or corrupted server files.
-- **Fix**:
-  1. Click **"Update Server"** to redownload files.
-  2. Check the **"Update Log"** for errors.
-  3. Ensure Java is installed and accessible.
+## 7️⃣ Tips & Recommendations
+- Always keep your **hytale-downloader-windows-amd64.exe** updated.  
+- For first-time users, follow the exact **First-Time Setup** sequence to ensure a clean environment.  
+- All tabs are zero-state safe, but server operations require files and authorization.  
+- Back up your `config.json` before making large changes.  
+- Use the **Console Tab** to monitor logs and test server commands interactively.
 
 ---
 
-## **5. Additional Notes**
-- **No Admin Permissions Required**: The script runs as a standard user.
-- **Minimize to Tray**: Click the **"System Tray"** icon (bottom-right corner) to minimize the GUI.
-- **Auto-Restart Server**: Enable the **"Auto-restart server after update"** checkbox in the **"Server Maintenance"** tab.
-
----
-
-## **6. Summary of Workflow**
-1. **Run the script** with PowerShell.
-2. **Update the server** manually via the **"Update Server"** button.
-3. **Start the server** using the **"Start Server"** button.
-4. **Monitor logs**, configure settings, and manage the server via the GUI.
 
 
 <img width="1180" height="638" alt="{88D7501D-2B5F-4556-991A-7E951DD44F7B}" src="https://github.com/user-attachments/assets/8576a157-09eb-4da3-b7db-5dfbf3a2c8ce" />
