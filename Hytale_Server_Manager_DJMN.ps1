@@ -1,5 +1,5 @@
 # ==========================================================================================
-# Hytale Server Manager GUI - Version 2.1
+# Hytale Server Manager GUI - Version 2.2
 # ==========================================================================================
 # Made with AI CCode From ChatGPT, Claude AI, Ollama LLMs and the github AI 
 # ZERO CODE WAS MADE BY A HUMAN, only configured text, and made prompts for AI to work with.
@@ -94,6 +94,8 @@ Add-Type -AssemblyName System.Windows.Forms
 # Add System.Drawing to allow colors, fonts, and other graphical manipulations for the GUI
 Add-Type -AssemblyName System.Drawing
 
+# Add System.Web for URL encoding (CurseForge API integration)
+Add-Type -AssemblyName System.Web
 
 # ==========================================================================================
 # SECTION: GLOBAL VARIABLES
@@ -246,6 +248,27 @@ $script:modsDisabledPath = Join-Path $PSScriptRoot "mods_disabled"
 # Global variable to store the mod list view control
 $script:modListView = $null
 
+# ------------------------------------------------------------------------------------------
+# CURSEFORGE API INTEGRATION
+# ------------------------------------------------------------------------------------------
+
+# CurseForge API Key
+$script:curseForgeApiKey = '$2a$10$OAqNZqZBBGveZ8SnmJ4d6.FeLQMtC0DdkrLOSGA3RJjH1vPjWPKaK'
+
+# CurseForge API Base URL
+$script:curseForgeApiBase = 'https://api.curseforge.com/v1'
+
+# Hytale Game ID on CurseForge
+$script:hytaleGameId = 70216
+
+# Hytale Mods Class ID
+$script:hytaleModsClassId = 9137
+
+# Path to CurseForge metadata file
+$script:cfMetadataPath = Join-Path $PSScriptRoot "cf_mod_metadata.json"
+
+# In-memory cache of CurseForge metadata
+$script:cfMetadata = @{}
 
 
 # ==========================================================================================
@@ -2159,7 +2182,7 @@ function Start-Server {
 
         # Step 9: Record start time
         $script:serverStartTime = Get-Date
-        $script:serverRunning = $true
+        $script:serverRunning = $false
 
         # Step 9b: Create auto-restart timer (6 hours = 21600000 milliseconds)
         if ($script:autoRestartTimer) {
@@ -2183,10 +2206,15 @@ function Start-Server {
         # Step 11: Start log polling
         Start-LogPolling
 
-        # Step 12: Update CPU/RAM labels initially
-        Update-CPUAndRAMUsage
+        # Step 11b: Confirm server is fully running after warm-up
+        Start-Sleep -Seconds 2
+
+        if ($script:serverProcess -and -not $script:serverProcess.HasExited) {
+            $script:serverRunning = $true
+            $txtConsole.AppendText("[INFO] Server process confirmed running`r`n")
+        }
 		
-		# Step 13: Start health monitoring
+		# Step 12: Start health monitoring
 		if ($script:healthMonitorTimer) {
 			$script:healthMonitorTimer.Stop()
 			$script:healthMonitorTimer.Dispose()
@@ -2929,6 +2957,490 @@ function Download-LatestDownloader {
 # SECTION: MOD MANAGER FUNCTIONS
 # ==========================================================================================
 
+# ==========================================================================================
+# SECTION: CURSEFORGE API FUNCTIONS
+# ==========================================================================================
+
+# =====================
+# Function: Load-CurseForgeMetadata
+# =====================
+# =====================
+# Function: Load-CurseForgeMetadata
+# =====================
+function Load-CurseForgeMetadata {
+    if (Test-Path $script:cfMetadataPath) {
+        try {
+            $json = Get-Content $script:cfMetadataPath -Raw -ErrorAction Stop
+            $tempData = $json | ConvertFrom-Json
+            
+            # Convert PSCustomObject to Hashtable properly (Windows PowerShell compatibility)
+            $script:cfMetadata = @{}
+            foreach ($property in $tempData.PSObject.Properties) {
+                $modFileName = $property.Name
+                $modData = $property.Value
+                
+                # Convert nested object to hashtable
+                $script:cfMetadata[$modFileName] = @{
+                    cf_project_id = $modData.cf_project_id
+                    cf_slug = $modData.cf_slug
+                    cf_name = $modData.cf_name
+                    cf_author = $modData.cf_author
+                    installed_version = $modData.installed_version
+                    installed_file_id = $modData.installed_file_id
+                    latest_version = $modData.latest_version
+                    latest_file_id = $modData.latest_file_id
+                    update_available = $modData.update_available
+                    last_checked = $modData.last_checked
+                    linked_date = $modData.linked_date
+                    cf_url = $modData.cf_url
+                }
+            }
+            
+            Write-Host "[CF] Loaded metadata for $($script:cfMetadata.Count) mods"
+        } catch {
+            Write-Host "[CF] Error loading metadata: $_"
+            $script:cfMetadata = @{}
+        }
+    } else {
+        $script:cfMetadata = @{}
+        Write-Host "[CF] No existing metadata file found"
+    }
+}
+
+# =====================
+# Function: Save-CurseForgeMetadata
+# =====================
+function Save-CurseForgeMetadata {
+    try {
+        $json = $script:cfMetadata | ConvertTo-Json -Depth 10
+        $json | Set-Content $script:cfMetadataPath -Force
+        Write-Host "[CF] Saved metadata for $($script:cfMetadata.Count) mods"
+    } catch {
+        Write-Host "[CF] Error saving metadata: $_"
+    }
+}
+
+# =====================
+# Function: Get-ModVersionFromFilename
+# =====================
+function Get-ModVersionFromFilename {
+    param([string]$filename)
+    
+    # Try multiple version patterns
+    $patterns = @(
+        '[-_]v?(\d+\.\d+(?:\.\d+)?)\.jar$',  # ModName-1.2.3.jar or ModName-v1.2.3.jar
+        '[-_](\d+\.\d+(?:\.\d+)?)[_-]',       # ModName-1.2.3-forge.jar
+        '\((\d+\.\d+(?:\.\d+)?)\)\.jar$'      # ModName(1.2.3).jar
+    )
+    
+    foreach ($pattern in $patterns) {
+        if ($filename -match $pattern) {
+            return $matches[1]
+        }
+    }
+    
+    return "Unknown"
+}
+
+# =====================
+# Function: Get-ModNameFromFilename
+# =====================
+function Get-ModNameFromFilename {
+    param([string]$filename)
+    
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($filename)
+    
+    # Remove version patterns
+    $cleanName = $baseName -replace '[-_]v?\d+\.\d+(?:\.\d+)?.*$', ''
+    $cleanName = $cleanName -replace '[-_](alpha|beta|release|final|forge|fabric|hytale).*$', ''
+    
+    return $cleanName.Trim()
+}
+
+# =====================
+# Function: Search-CurseForgeMods
+# =====================
+function Search-CurseForgeMods {
+    param(
+        [string]$searchQuery,
+        [int]$pageSize = 10
+    )
+    
+    try {
+        $headers = @{
+            "Accept" = "application/json"
+            "x-api-key" = $script:curseForgeApiKey
+        }
+        
+        $encodedQuery = [System.Web.HttpUtility]::UrlEncode($searchQuery)
+        $url = "$($script:curseForgeApiBase)/mods/search?gameId=$($script:hytaleGameId)&classId=$($script:hytaleModsClassId)&searchFilter=$encodedQuery&pageSize=$pageSize"
+        
+        Write-Host "[CF] Searching for: $searchQuery"
+        
+        $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -ErrorAction Stop
+        
+        if ($response.data) {
+            Write-Host "[CF] Found $($response.data.Count) results"
+            return $response.data
+        } else {
+            Write-Host "[CF] No results found"
+            return @()
+        }
+    } catch {
+        Write-Host "[CF] Search error: $_"
+        [System.Windows.Forms.MessageBox]::Show(
+            "Failed to search CurseForge API.`n`nError: $_`n`nPlease check your internet connection and API key.",
+            "CurseForge Search Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+        return @()
+    }
+}
+
+# =====================
+# Function: Get-CurseForgeModInfo
+# =====================
+function Get-CurseForgeModInfo {
+    param([int]$projectId)
+    
+    try {
+        $headers = @{
+            "Accept" = "application/json"
+            "x-api-key" = $script:curseForgeApiKey
+        }
+        
+        $url = "$($script:curseForgeApiBase)/mods/$projectId"
+        
+        $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -ErrorAction Stop
+        
+        if ($response.data) {
+            return $response.data
+        }
+        return $null
+    } catch {
+        Write-Host "[CF] Error getting mod info: $_"
+        return $null
+    }
+}
+
+# =====================
+# Function: Show-CurseForgeLinkDialog
+# =====================
+function Show-CurseForgeLinkDialog {
+    if (-not $script:modListView.SelectedItems -or $script:modListView.SelectedItems.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Please select a mod from the list first.",
+            "No Mod Selected",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+        return
+    }
+    
+    $selectedItem = $script:modListView.SelectedItems[0]
+    $modFileName = $selectedItem.Text
+    
+    # Extract suggested search term
+    $suggestedName = Get-ModNameFromFilename -filename $modFileName
+    
+    # Create search dialog
+    $searchForm = New-Object System.Windows.Forms.Form
+    $searchForm.Text = "Link to CurseForge"
+    $searchForm.Size = New-Object System.Drawing.Size(700, 600)
+    $searchForm.StartPosition = "CenterParent"
+    $searchForm.BackColor = $colorBack
+    $searchForm.FormBorderStyle = 'FixedDialog'
+    $searchForm.MaximizeBox = $false
+    
+    # Mod file label
+    $lblModFile = New-Object System.Windows.Forms.Label
+    $lblModFile.Text = "Mod File: $modFileName"
+    $lblModFile.Location = New-Object System.Drawing.Point(20, 20)
+    $lblModFile.Size = New-Object System.Drawing.Size(660, 25)
+    $lblModFile.ForeColor = $colorText
+    $lblModFile.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $searchForm.Controls.Add($lblModFile)
+    
+    # Search box label
+    $lblSearch = New-Object System.Windows.Forms.Label
+    $lblSearch.Text = "Search CurseForge:"
+    $lblSearch.Location = New-Object System.Drawing.Point(20, 60)
+    $lblSearch.Size = New-Object System.Drawing.Size(150, 20)
+    $lblSearch.ForeColor = $colorText
+    $searchForm.Controls.Add($lblSearch)
+    
+    # Search textbox
+    $txtSearch = New-Object System.Windows.Forms.TextBox
+    $txtSearch.Location = New-Object System.Drawing.Point(20, 85)
+    $txtSearch.Size = New-Object System.Drawing.Size(550, 25)
+    $txtSearch.Text = $suggestedName
+    $txtSearch.BackColor = $colorTextboxBack
+    $txtSearch.ForeColor = $colorTextboxText
+    $searchForm.Controls.Add($txtSearch)
+    
+    # Search button
+    $btnSearch = New-Object System.Windows.Forms.Button
+    $btnSearch.Text = "Search"
+    $btnSearch.Location = New-Object System.Drawing.Point(580, 83)
+    $btnSearch.Size = New-Object System.Drawing.Size(100, 30)
+    $btnSearch.BackColor = [System.Drawing.Color]::FromArgb(64, 96, 224)
+    $btnSearch.ForeColor = $colorButtonText
+    $btnSearch.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $searchForm.Controls.Add($btnSearch)
+    
+    # Results ListView
+    $lvResults = New-Object System.Windows.Forms.ListView
+    $lvResults.Location = New-Object System.Drawing.Point(20, 130)
+    $lvResults.Size = New-Object System.Drawing.Size(660, 350)
+    $lvResults.View = 'Details'
+    $lvResults.FullRowSelect = $true
+    $lvResults.GridLines = $true
+    $lvResults.BackColor = $colorTextboxBack
+    $lvResults.ForeColor = $colorTextboxText
+    $lvResults.Columns.Add("Mod Name", 250) | Out-Null
+    $lvResults.Columns.Add("Author", 120) | Out-Null
+    $lvResults.Columns.Add("Downloads", 100) | Out-Null
+    $lvResults.Columns.Add("Project ID", 100) | Out-Null
+    $searchForm.Controls.Add($lvResults)
+    
+    # Manual ID label
+    $lblManual = New-Object System.Windows.Forms.Label
+    $lblManual.Text = "Or enter Project ID manually:"
+    $lblManual.Location = New-Object System.Drawing.Point(20, 495)
+    $lblManual.Size = New-Object System.Drawing.Size(200, 20)
+    $lblManual.ForeColor = $colorText
+    $searchForm.Controls.Add($lblManual)
+    
+    # Manual ID textbox
+    $txtProjectId = New-Object System.Windows.Forms.TextBox
+    $txtProjectId.Location = New-Object System.Drawing.Point(220, 492)
+    $txtProjectId.Size = New-Object System.Drawing.Size(150, 25)
+    $txtProjectId.BackColor = $colorTextboxBack
+    $txtProjectId.ForeColor = $colorTextboxText
+    $searchForm.Controls.Add($txtProjectId)
+    
+    # Link button
+    $btnLink = New-Object System.Windows.Forms.Button
+    $btnLink.Text = "Link Selected"
+    $btnLink.Location = New-Object System.Drawing.Point(480, 520)
+    $btnLink.Size = New-Object System.Drawing.Size(200, 35)
+    $btnLink.BackColor = [System.Drawing.Color]::FromArgb(32, 144, 32)
+    $btnLink.ForeColor = $colorButtonText
+    $btnLink.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btnLink.Enabled = $false
+    $searchForm.Controls.Add($btnLink)
+    
+    # Cancel button
+    $btnCancel = New-Object System.Windows.Forms.Button
+    $btnCancel.Text = "Cancel"
+    $btnCancel.Location = New-Object System.Drawing.Point(270, 520)
+    $btnCancel.Size = New-Object System.Drawing.Size(200, 35)
+    $btnCancel.BackColor = $colorButtonBack
+    $btnCancel.ForeColor = $colorButtonText
+    $btnCancel.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btnCancel.Add_Click({ $searchForm.Close() })
+    $searchForm.Controls.Add($btnCancel)
+    
+    # Search function
+    $performSearch = {
+        $query = $txtSearch.Text.Trim()
+        if ([string]::IsNullOrEmpty($query)) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Please enter a search term.",
+                "Search Required",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            )
+            return
+        }
+        
+        $lvResults.Items.Clear()
+        $btnLink.Enabled = $false
+        
+        # Show searching message
+        $searchItem = New-Object System.Windows.Forms.ListViewItem("Searching CurseForge...")
+        $lvResults.Items.Add($searchItem) | Out-Null
+        $searchForm.Refresh()
+        
+        # Perform search
+        $results = Search-CurseForgeMods -searchQuery $query
+        
+        $lvResults.Items.Clear()
+        
+        if ($results -and $results.Count -gt 0) {
+            foreach ($mod in $results) {
+                $item = New-Object System.Windows.Forms.ListViewItem($mod.name)
+                
+                # Get author name
+                $authorName = "Unknown"
+                if ($mod.authors -and $mod.authors.Count -gt 0) {
+                    $authorName = $mod.authors[0].name
+                }
+                $item.SubItems.Add($authorName) | Out-Null
+                
+                # Format download count
+                $downloads = if ($mod.downloadCount) { "{0:N0}" -f $mod.downloadCount } else { "0" }
+                $item.SubItems.Add($downloads) | Out-Null
+                
+                # Project ID
+                $item.SubItems.Add($mod.id.ToString()) | Out-Null
+                
+                # Store full mod data in tag
+                $item.Tag = $mod
+                
+                $lvResults.Items.Add($item) | Out-Null
+            }
+        } else {
+            $noResults = New-Object System.Windows.Forms.ListViewItem("No results found")
+            $lvResults.Items.Add($noResults) | Out-Null
+        }
+    }
+    
+    # Search button click
+    $btnSearch.Add_Click($performSearch)
+    
+    # Enter key in search box triggers search
+    $txtSearch.Add_KeyDown({
+        param($sender, $e)
+        if ($e.KeyCode -eq 'Enter') {
+            & $performSearch
+            $e.SuppressKeyPress = $true
+        }
+    })
+    
+    # Enable Link button when item selected
+    $lvResults.Add_SelectedIndexChanged({
+        $btnLink.Enabled = ($lvResults.SelectedItems.Count -gt 0)
+    })
+    
+    # Link button click
+    $btnLink.Add_Click({
+        $selectedMod = $null
+        $projectId = 0
+        
+        # Check if manual ID was entered
+        if (-not [string]::IsNullOrWhiteSpace($txtProjectId.Text)) {
+            if ([int]::TryParse($txtProjectId.Text, [ref]$projectId)) {
+                # Get mod info from API
+                $modInfo = Get-CurseForgeModInfo -projectId $projectId
+                if ($modInfo) {
+                    $selectedMod = $modInfo
+                } else {
+                    [System.Windows.Forms.MessageBox]::Show(
+                        "Could not find mod with Project ID: $projectId",
+                        "Invalid Project ID",
+                        [System.Windows.Forms.MessageBoxButtons]::OK,
+                        [System.Windows.Forms.MessageBoxIcon]::Error
+                    )
+                    return
+                }
+            } else {
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Invalid Project ID. Please enter a number.",
+                    "Invalid Input",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Error
+                )
+                return
+            }
+        }
+        # Check if search result was selected
+        elseif ($lvResults.SelectedItems.Count -gt 0) {
+            $selectedMod = $lvResults.SelectedItems[0].Tag
+        }
+        else {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Please select a mod from the search results or enter a Project ID.",
+                "No Selection",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            )
+            return
+        }
+        
+        if ($selectedMod) {
+            # Get installed version
+            $installedVersion = Get-ModVersionFromFilename -filename $modFileName
+            
+            # Get latest file info
+            $latestFile = $null
+            $latestVersion = "Unknown"
+            $latestFileId = 0
+            
+            if ($selectedMod.latestFiles -and $selectedMod.latestFiles.Count -gt 0) {
+                $latestFile = $selectedMod.latestFiles[0]
+                $latestVersion = if ($latestFile.displayName) { 
+                    Get-ModVersionFromFilename -filename $latestFile.fileName 
+                } else { 
+                    "Unknown" 
+                }
+                $latestFileId = $latestFile.id
+            }
+            
+            # Get author
+            $author = "Unknown"
+            if ($selectedMod.authors -and $selectedMod.authors.Count -gt 0) {
+                $author = $selectedMod.authors[0].name
+            }
+            
+            # Create metadata entry
+            $metadata = @{
+                cf_project_id = $selectedMod.id
+                cf_slug = $selectedMod.slug
+                cf_name = $selectedMod.name
+                cf_author = $author
+                installed_version = $installedVersion
+                installed_file_id = 0
+                latest_version = $latestVersion
+                latest_file_id = $latestFileId
+                update_available = $false
+                last_checked = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss")
+                linked_date = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss")
+                cf_url = "https://www.curseforge.com/hytale/mods/$($selectedMod.slug)"
+            }
+            
+            # Check if update available
+            if ($installedVersion -ne "Unknown" -and $latestVersion -ne "Unknown") {
+                try {
+                    $v1 = [version]$installedVersion
+                    $v2 = [version]$latestVersion
+                    $metadata.update_available = $v2 -gt $v1
+                } catch {
+                    # Version comparison failed, mark as unknown
+                    $metadata.update_available = $false
+                }
+            }
+            
+            # Save to metadata
+            $script:cfMetadata[$modFileName] = $metadata
+            Save-CurseForgeMetadata
+            
+            [System.Windows.Forms.MessageBox]::Show(
+                "Successfully linked '$modFileName' to CurseForge project:`n`n" +
+                "Name: $($selectedMod.name)`n" +
+                "Author: $author`n" +
+                "Project ID: $($selectedMod.id)`n" +
+                "Installed Version: $installedVersion`n" +
+                "Latest Version: $latestVersion",
+                "Mod Linked",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information
+            )
+            
+            # Refresh mod list to show new status
+            Refresh-ModList
+            
+            $searchForm.Close()
+        }
+    })
+    
+    # Show form
+    $searchForm.ShowDialog() | Out-Null
+}
+
+
+
 # =====================
 # Function: Refresh-ModList
 # =====================
@@ -2946,59 +3458,112 @@ function Refresh-ModList {
         New-Item -Path $script:modsDisabledPath -ItemType Directory -Force | Out-Null
     }
     
+    # Track mod base names for conflict detection
+    $modGroups = @{}
+    
     # Get enabled mods (in /mods folder)
     $enabledMods = Get-ChildItem -Path $script:modsPath -Filter "*.jar" -ErrorAction SilentlyContinue
     foreach ($mod in $enabledMods) {
         $item = New-Object System.Windows.Forms.ListViewItem($mod.Name)
-        $item.SubItems.Add("ENABLED")
+        
+        # Status
+        $item.SubItems.Add("ENABLED") | Out-Null
+        $item.ForeColor = [System.Drawing.Color]::LimeGreen
+        
+        # Version
+        $version = Get-ModVersionFromFilename -filename $mod.Name
+        $item.SubItems.Add($version) | Out-Null
+        
+        # CF Status
+        $cfStatus = "Not Linked"
+        if ($script:cfMetadata.ContainsKey($mod.Name)) {
+            $meta = $script:cfMetadata[$mod.Name]
+            if ($meta.update_available -eq $true) {
+                $cfStatus = "Update! ($($meta.latest_version))"
+                $item.ForeColor = [System.Drawing.Color]::Orange
+            } else {
+                $cfStatus = "Linked"
+            }
+        }
+        $item.SubItems.Add($cfStatus) | Out-Null
+        
+        # File Size
         $fileSizeMB = [math]::Round($mod.Length / 1MB, 2)
         if ($fileSizeMB -lt 0.01) {
             $fileSizeKB = [math]::Round($mod.Length / 1KB, 2)
-            $item.SubItems.Add("$fileSizeKB KB")
+            $item.SubItems.Add("$fileSizeKB KB") | Out-Null
         } else {
-            $item.SubItems.Add("$fileSizeMB MB")
+            $item.SubItems.Add("$fileSizeMB MB") | Out-Null
         }
-        $item.SubItems.Add($mod.FullName)
-        $item.ForeColor = [System.Drawing.Color]::LimeGreen
+        
+        # File Path
+        $item.SubItems.Add($mod.FullName) | Out-Null
+        
         $item.Tag = @{ Enabled = $true; Path = $mod.FullName }
-        $script:modListView.Items.Add($item)
+        $script:modListView.Items.Add($item) | Out-Null
+        
+        # Track for conflicts
+        $baseName = Get-ModNameFromFilename -filename $mod.Name
+        if (-not $modGroups.ContainsKey($baseName)) {
+            $modGroups[$baseName] = @()
+        }
+        $modGroups[$baseName] += $item
     }
     
     # Get disabled mods (in /mods_disabled folder)
     $disabledMods = Get-ChildItem -Path $script:modsDisabledPath -Filter "*.jar" -ErrorAction SilentlyContinue
     foreach ($mod in $disabledMods) {
         $item = New-Object System.Windows.Forms.ListViewItem($mod.Name)
-        $item.SubItems.Add("DISABLED")
+        
+        # Status
+        $item.SubItems.Add("DISABLED") | Out-Null
+        $item.ForeColor = [System.Drawing.Color]::Red
+        
+        # Version
+        $version = Get-ModVersionFromFilename -filename $mod.Name
+        $item.SubItems.Add($version) | Out-Null
+        
+        # CF Status
+        $cfStatus = "Not Linked"
+        if ($script:cfMetadata.ContainsKey($mod.Name)) {
+            $meta = $script:cfMetadata[$mod.Name]
+            if ($meta.update_available -eq $true) {
+                $cfStatus = "Update! ($($meta.latest_version))"
+            } else {
+                $cfStatus = "Linked"
+            }
+        }
+        $item.SubItems.Add($cfStatus) | Out-Null
+        
+        # File Size
         $fileSizeMB = [math]::Round($mod.Length / 1MB, 2)
         if ($fileSizeMB -lt 0.01) {
             $fileSizeKB = [math]::Round($mod.Length / 1KB, 2)
-            $item.SubItems.Add("$fileSizeKB KB")
+            $item.SubItems.Add("$fileSizeKB KB") | Out-Null
         } else {
-            $item.SubItems.Add("$fileSizeMB MB")
+            $item.SubItems.Add("$fileSizeMB MB") | Out-Null
         }
-        $item.SubItems.Add($mod.FullName)
-        $item.ForeColor = [System.Drawing.Color]::Red
+        
+        # File Path
+        $item.SubItems.Add($mod.FullName) | Out-Null
+        
         $item.Tag = @{ Enabled = $false; Path = $mod.FullName }
-        $script:modListView.Items.Add($item)
+        $script:modListView.Items.Add($item) | Out-Null
     }
     
-    # Visual indicator if mods might have conflicts
-    $enabledModNames = $enabledMods | ForEach-Object { $_.BaseName -replace '[-_]\d+.*$', '' }
-    $hasDuplicates = ($enabledModNames | Group-Object | Where-Object { $_.Count -gt 1 }).Count -gt 0
-    
-    if ($hasDuplicates) {
-        # Find items with potential conflicts and mark them yellow
-        foreach ($item in $script:modListView.Items) {
-            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($item.Text) -replace '[-_]\d+.*$', ''
-            $matchCount = ($enabledModNames | Where-Object { $_ -eq $baseName }).Count
-            
-            if ($matchCount -gt 1 -and $item.Tag.Enabled) {
+    # Mark version conflicts
+    foreach ($baseName in $modGroups.Keys) {
+        $group = $modGroups[$baseName]
+        if ($group.Count -gt 1) {
+            foreach ($item in $group) {
+                $currentStatus = $item.SubItems[1].Text
+                $item.SubItems[1].Text = "$currentStatus (Warning)"
                 $item.ForeColor = [System.Drawing.Color]::Yellow
-                $item.SubItems[1].Text = "ENABLED (Warning)"
             }
         }
     }
 }
+
 # =====================
 # Function: Toggle-ModState
 # =====================
@@ -3394,6 +3959,421 @@ Share this with friends to connect!
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Information
     )
+}
+
+# =====================
+# Function: Check-AllModUpdates
+# =====================
+function Check-AllModUpdates {
+    # Count how many mods are linked
+    $linkedCount = 0
+    foreach ($key in $script:cfMetadata.Keys) {
+        $linkedCount++
+    }
+    
+    if ($linkedCount -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "No mods are linked to CurseForge yet!`n`nUse the 'Link to CurseForge' button to link your mods first.",
+            "No Linked Mods",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+        return
+    }
+    
+    Write-Host "[CF] Checking updates for $linkedCount linked mod(s)..."
+    
+    $updatesFound = 0
+    $checkedCount = 0
+    
+    foreach ($modFileName in $script:cfMetadata.Keys) {
+        $meta = $script:cfMetadata[$modFileName]
+        $projectId = $meta.cf_project_id
+        
+        Write-Host "[CF] Checking $modFileName (Project ID: $projectId)..."
+        
+        # Get latest mod info from CurseForge
+        $modInfo = Get-CurseForgeModInfo -projectId $projectId
+        
+        if ($modInfo -and $modInfo.latestFiles -and $modInfo.latestFiles.Count -gt 0) {
+            $latestFile = $modInfo.latestFiles[0]
+            $latestVersion = Get-ModVersionFromFilename -filename $latestFile.fileName
+            $installedVersion = $meta.installed_version
+            
+            # Update metadata with latest info
+            $meta.latest_version = $latestVersion
+            $meta.latest_file_id = $latestFile.id
+            $meta.last_checked = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss")
+            
+            # Compare versions
+            if ($installedVersion -ne "Unknown" -and $latestVersion -ne "Unknown") {
+                try {
+                    $v1 = [version]$installedVersion
+                    $v2 = [version]$latestVersion
+                    if ($v2 -gt $v1) {
+                        $meta.update_available = $true
+                        $updatesFound++
+                        Write-Host "[CF] UPDATE AVAILABLE: $modFileName ($installedVersion -> $latestVersion)"
+                    } else {
+                        $meta.update_available = $false
+                        Write-Host "[CF] Up to date: $modFileName ($installedVersion)"
+                    }
+                } catch {
+                    $meta.update_available = $false
+                    Write-Host "[CF] Could not compare versions for $modFileName"
+                }
+            } else {
+                $meta.update_available = $false
+            }
+            
+            $checkedCount++
+        } else {
+            Write-Host "[CF] Could not get update info for $modFileName"
+        }
+    }
+    
+    # Save updated metadata
+    Save-CurseForgeMetadata
+    
+    # Refresh the mod list to show update indicators
+    Refresh-ModList
+    
+    # Show results
+    if ($updatesFound -gt 0) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Update check complete!`n`n" +
+            "Checked: $checkedCount mod(s)`n" +
+            "Updates available: $updatesFound mod(s)`n`n" +
+            "Mods with updates are marked with a '!' in orange.",
+            "Updates Found!",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+    } else {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Update check complete!`n`n" +
+            "Checked: $checkedCount mod(s)`n" +
+            "All linked mods are up to date! :)`n",
+            "No Updates",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+    }
+}
+
+# =====================
+# Function: Update-SelectedMod
+# =====================
+function Update-SelectedMod {
+    # Check if a mod is selected
+    if (-not $script:modListView.SelectedItems -or $script:modListView.SelectedItems.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Please select a mod from the list first!",
+            "No Mod Selected",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        )
+        return
+    }
+    
+    $selectedItem = $script:modListView.SelectedItems[0]
+    $modFileName = $selectedItem.Text
+    
+    # Check if mod is linked
+    if (-not $script:cfMetadata.ContainsKey($modFileName)) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "This mod is not linked to CurseForge!`n`nUse 'Link to CurseForge' first.",
+            "Not Linked",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        )
+        return
+    }
+    
+    $meta = $script:cfMetadata[$modFileName]
+    
+    # Check if update is available
+    if (-not $meta.update_available) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "This mod is already up to date!`n`n" +
+            "Installed: $($meta.installed_version)`n" +
+            "Latest: $($meta.latest_version)`n`n" +
+            "Click 'Check for Updates' to refresh.",
+            "Already Up to Date",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+        return
+    }
+    
+    # Confirm update
+    $confirmResult = [System.Windows.Forms.MessageBox]::Show(
+        "Update this mod?`n`n" +
+        "Mod: $($meta.cf_name)`n" +
+        "Current Version: $($meta.installed_version)`n" +
+        "New Version: $($meta.latest_version)`n`n" +
+        "The new version will be downloaded to the disabled mods folder.`n" +
+        "You can enable it manually after reviewing.",
+        "Confirm Update",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question
+    )
+    
+    if ($confirmResult -ne [System.Windows.Forms.DialogResult]::Yes) {
+        return
+    }
+    
+    # Get download URL from CurseForge
+    try {
+        $headers = @{
+            "Accept" = "application/json"
+            "x-api-key" = $script:curseForgeApiKey
+        }
+        
+        $fileUrl = "$($script:curseForgeApiBase)/mods/$($meta.cf_project_id)/files/$($meta.latest_file_id)"
+        
+        Write-Host "[CF] Getting download URL for file ID: $($meta.latest_file_id)"
+        
+        $fileResponse = Invoke-RestMethod -Uri $fileUrl -Headers $headers -Method Get -ErrorAction Stop
+        
+        if (-not $fileResponse.data.downloadUrl) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Could not get download URL from CurseForge.`n`nThe mod author may have disabled automatic downloads.",
+                "Download Error",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error
+            )
+            return
+        }
+        
+        $downloadUrl = $fileResponse.data.downloadUrl
+        $newFileName = $fileResponse.data.fileName
+        
+        Write-Host "[CF] Download URL: $downloadUrl"
+        Write-Host "[CF] New file name: $newFileName"
+        
+        # Download to disabled folder
+        $downloadPath = Join-Path $script:modsDisabledPath $newFileName
+        
+        Write-Host "[CF] Downloading to: $downloadPath"
+        
+        # Show downloading message
+        $downloadForm = New-Object System.Windows.Forms.Form
+        $downloadForm.Text = "Downloading Update..."
+        $downloadForm.Size = New-Object System.Drawing.Size(400, 150)
+        $downloadForm.StartPosition = "CenterParent"
+        $downloadForm.BackColor = $colorBack
+        $downloadForm.FormBorderStyle = 'FixedDialog'
+        $downloadForm.ControlBox = $false
+        
+        $lblDownloading = New-Object System.Windows.Forms.Label
+        $lblDownloading.Text = "Downloading $newFileName...`n`nPlease wait..."
+        $lblDownloading.Location = New-Object System.Drawing.Point(20, 30)
+        $lblDownloading.Size = New-Object System.Drawing.Size(360, 80)
+        $lblDownloading.ForeColor = $colorText
+        $lblDownloading.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+        $downloadForm.Controls.Add($lblDownloading)
+        
+        $downloadForm.Show()
+        $downloadForm.Refresh()
+        
+        # Download file
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath -ErrorAction Stop
+        
+        $downloadForm.Close()
+        
+        Write-Host "[CF] Download complete!"
+        
+        # Ask what to do with old version
+        $oldModPath = $selectedItem.Tag.Path
+        $oldModName = [System.IO.Path]::GetFileName($oldModPath)
+        
+        $oldModResult = [System.Windows.Forms.MessageBox]::Show(
+            "Update downloaded successfully!`n`n" +
+            "New version: $newFileName`n" +
+            "Downloaded to: mods_disabled folder`n`n" +
+            "What should we do with the old version?`n" +
+            "$oldModName`n`n" +
+            "YES = Keep old version in disabled folder (backup)`n" +
+            "NO = Delete old version permanently",
+            "Old Version Handling",
+            [System.Windows.Forms.MessageBoxButtons]::YesNoCancel,
+            [System.Windows.Forms.MessageBoxIcon]::Question
+        )
+        
+        if ($oldModResult -eq [System.Windows.Forms.DialogResult]::Yes) {
+            # Move old version to disabled folder
+            if (Test-Path $oldModPath) {
+                $oldBackupPath = Join-Path $script:modsDisabledPath $oldModName
+                
+                # If old file with same name exists in disabled, rename it
+                if (Test-Path $oldBackupPath) {
+                    $backupName = [System.IO.Path]::GetFileNameWithoutExtension($oldModName)
+                    $backupExt = [System.IO.Path]::GetExtension($oldModName)
+                    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+                    $oldBackupPath = Join-Path $script:modsDisabledPath "${backupName}_backup_${timestamp}${backupExt}"
+                }
+                
+                Move-Item -Path $oldModPath -Destination $oldBackupPath -Force
+                Write-Host "[CF] Moved old version to: $oldBackupPath"
+            }
+        }
+        elseif ($oldModResult -eq [System.Windows.Forms.DialogResult]::No) {
+            # Delete old version
+            if (Test-Path $oldModPath) {
+                Remove-Item -Path $oldModPath -Force
+                Write-Host "[CF] Deleted old version: $oldModPath"
+            }
+        }
+        # If Cancel, do nothing with old file
+        
+        # Update metadata
+        $script:cfMetadata.Remove($modFileName)
+        $script:cfMetadata[$newFileName] = @{
+            cf_project_id = $meta.cf_project_id
+            cf_slug = $meta.cf_slug
+            cf_name = $meta.cf_name
+            cf_author = $meta.cf_author
+            installed_version = $meta.latest_version
+            installed_file_id = $meta.latest_file_id
+            latest_version = $meta.latest_version
+            latest_file_id = $meta.latest_file_id
+            update_available = $false
+            last_checked = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss")
+            linked_date = $meta.linked_date
+            cf_url = $meta.cf_url
+        }
+        
+        Save-CurseForgeMetadata
+        
+        # Refresh mod list
+        Refresh-ModList
+        
+        [System.Windows.Forms.MessageBox]::Show(
+            "Update complete!`n`n" +
+            "New version: $newFileName`n" +
+            "Location: mods_disabled folder`n`n" +
+            "Enable the new version when you're ready to use it!",
+            "Update Successful",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+        
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Error downloading update:`n`n$_",
+            "Download Failed",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+        Write-Host "[CF] Download error: $_"
+    }
+}
+
+# =====================
+# Function: Update-ModNotes
+# =====================
+# PURPOSE: Save custom notes/description for the selected mod
+function Update-ModNotes {
+    if (-not $script:modListView.SelectedItems -or $script:modListView.SelectedItems.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Please select a mod first!",
+            "No Mod Selected",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        )
+        return
+    }
+    
+    $selectedItem = $script:modListView.SelectedItems[0]
+    $modFileName = $selectedItem.Text
+    $notes = $script:txtModNotes.Text
+    
+    # Load existing notes data
+    $notesPath = Join-Path $PSScriptRoot "mod_notes.json"
+    $notesData = @{}
+    
+    if (Test-Path $notesPath) {
+        try {
+            $json = Get-Content $notesPath -Raw -ErrorAction Stop
+            $tempData = $json | ConvertFrom-Json
+            
+            # Convert PSCustomObject to Hashtable properly
+            foreach ($property in $tempData.PSObject.Properties) {
+                $notesData[$property.Name] = $property.Value
+            }
+        } catch {
+            Write-Host "Error loading notes: $_"
+        }
+    }
+    
+    # Update or add notes for this mod
+    $notesData[$modFileName] = $notes
+    
+    # Save back to file
+    try {
+        $json = $notesData | ConvertTo-Json -Depth 10
+        $json | Set-Content $notesPath -Force
+        
+        [System.Windows.Forms.MessageBox]::Show(
+            "Notes saved for '$modFileName'!",
+            "Notes Saved",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Error saving notes: $_",
+            "Save Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+    }
+}
+
+# =====================
+# Function: Show-ModNotes
+# =====================
+# PURPOSE: Display saved notes when a mod is selected
+function Show-ModNotes {
+    if (-not $script:modListView.SelectedItems -or $script:modListView.SelectedItems.Count -eq 0) {
+        $script:txtModNotes.Text = "Select a mod to view or edit notes..."
+        $script:txtModNotes.ReadOnly = $true
+        return
+    }
+    
+    $selectedItem = $script:modListView.SelectedItems[0]
+    $modFileName = $selectedItem.Text
+    
+    # Load notes data
+    $notesPath = Join-Path $PSScriptRoot "mod_notes.json"
+    
+    if (Test-Path $notesPath) {
+        try {
+            $json = Get-Content $notesPath -Raw -ErrorAction Stop
+            $tempData = $json | ConvertFrom-Json
+            
+            # Convert PSCustomObject to Hashtable properly
+            $notesData = @{}
+            foreach ($property in $tempData.PSObject.Properties) {
+                $notesData[$property.Name] = $property.Value
+            }
+            
+            if ($notesData.ContainsKey($modFileName)) {
+                $script:txtModNotes.Text = $notesData[$modFileName]
+            } else {
+                $script:txtModNotes.Text = "No notes for this mod yet. Click 'Save Notes' to add some!"
+            }
+        } catch {
+            Write-Host "Error loading notes for ${modFileName}: $_"
+            $script:txtModNotes.Text = "Error loading notes. Check the console for details."
+        }
+    } else {
+        $script:txtModNotes.Text = "No notes for this mod yet. Click 'Save Notes' to add some!"
+    }
+    
+    # Enable editing
+    $script:txtModNotes.ReadOnly = $false
 }
 
 # ==========================================================================================
@@ -4364,10 +5344,12 @@ $script:modListView.Add_DragEnter({ Handle-ModDragEnter $_ $args[1] })
 $script:modListView.Add_DragDrop({ Handle-ModDragDrop $_ $args[1] })
 
 # Add columns
-$script:modListView.Columns.Add("Mod Name", 300) | Out-Null
+$script:modListView.Columns.Add("Mod Name", 250) | Out-Null
 $script:modListView.Columns.Add("Status", 100) | Out-Null
+$script:modListView.Columns.Add("Version", 80) | Out-Null
+$script:modListView.Columns.Add("CF Status", 150) | Out-Null
 $script:modListView.Columns.Add("File Size", 80) | Out-Null
-$script:modListView.Columns.Add("File Path", 260) | Out-Null
+$script:modListView.Columns.Add("File Path", 200) | Out-Null
 
 $tabModManager.Controls.Add($script:modListView)
 
@@ -4422,27 +5404,61 @@ $tabModManager.Controls.Add($btnCheckConflicts)
 # Separator
 $lblSeparator = New-Object System.Windows.Forms.Label
 $lblSeparator.Text = "----------------------------------------"
-$lblSeparator.Location = New-Object System.Drawing.Point(770, 320)
+$lblSeparator.Location = New-Object System.Drawing.Point(770, 315)
 $lblSeparator.Size = New-Object System.Drawing.Size(200, 20)
 $lblSeparator.ForeColor = [System.Drawing.Color]::Gray
 $tabModManager.Controls.Add($lblSeparator)
 
 # =====================
-# ONLINE REPOSITORY SECTION
+# CURSEFORGE INTEGRATION SECTION
 # =====================
 
-$lblOnlineRepo = New-Object System.Windows.Forms.Label
-$lblOnlineRepo.Text = "Browse Online Mods"
-$lblOnlineRepo.Location = New-Object System.Drawing.Point(770, 345)
-$lblOnlineRepo.Size = New-Object System.Drawing.Size(200, 20)
-$lblOnlineRepo.ForeColor = $colorText
-$lblOnlineRepo.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$tabModManager.Controls.Add($lblOnlineRepo)
+$lblCurseForgeSection = New-Object System.Windows.Forms.Label
+$lblCurseForgeSection.Text = "CurseForge Integration"
+$lblCurseForgeSection.Location = New-Object System.Drawing.Point(770, 340)
+$lblCurseForgeSection.Size = New-Object System.Drawing.Size(200, 20)
+$lblCurseForgeSection.ForeColor = $colorText
+$lblCurseForgeSection.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$tabModManager.Controls.Add($lblCurseForgeSection)
 
+# Link to CurseForge button
+$btnLinkToCurseForge = New-Object System.Windows.Forms.Button
+$btnLinkToCurseForge.Text = "Link to CurseForge"
+$btnLinkToCurseForge.Location = New-Object System.Drawing.Point(770, 365)
+$btnLinkToCurseForge.Size = New-Object System.Drawing.Size(200, 30)
+$btnLinkToCurseForge.BackColor = [System.Drawing.Color]::FromArgb(100, 65, 165)
+$btnLinkToCurseForge.ForeColor = $colorButtonText
+$btnLinkToCurseForge.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnLinkToCurseForge.Add_Click({ Show-CurseForgeLinkDialog })
+$tabModManager.Controls.Add($btnLinkToCurseForge)
+
+# Check for Updates button
+$btnCheckUpdates = New-Object System.Windows.Forms.Button
+$btnCheckUpdates.Text = "Check for Updates"
+$btnCheckUpdates.Location = New-Object System.Drawing.Point(770, 400)
+$btnCheckUpdates.Size = New-Object System.Drawing.Size(200, 30)
+$btnCheckUpdates.BackColor = [System.Drawing.Color]::FromArgb(64, 96, 224)
+$btnCheckUpdates.ForeColor = $colorButtonText
+$btnCheckUpdates.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnCheckUpdates.Add_Click({ Check-AllModUpdates })
+$tabModManager.Controls.Add($btnCheckUpdates)
+
+# Update Selected Mod button
+$btnUpdateMod = New-Object System.Windows.Forms.Button
+$btnUpdateMod.Text = "Update Selected Mod"
+$btnUpdateMod.Location = New-Object System.Drawing.Point(770, 435)
+$btnUpdateMod.Size = New-Object System.Drawing.Size(200, 30)
+$btnUpdateMod.BackColor = [System.Drawing.Color]::FromArgb(255, 140, 0)
+$btnUpdateMod.ForeColor = $colorButtonText
+$btnUpdateMod.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnUpdateMod.Add_Click({ Update-SelectedMod })
+$tabModManager.Controls.Add($btnUpdateMod)
+
+# Browse CurseForge Website button
 $btnCurseForge = New-Object System.Windows.Forms.Button
-$btnCurseForge.Text = "Open CurseForge"
-$btnCurseForge.Location = New-Object System.Drawing.Point(770, 370)
-$btnCurseForge.Size = New-Object System.Drawing.Size(200, 40)
+$btnCurseForge.Text = "Browse CurseForge"
+$btnCurseForge.Location = New-Object System.Drawing.Point(770, 470)
+$btnCurseForge.Size = New-Object System.Drawing.Size(200, 30)
 $btnCurseForge.BackColor = [System.Drawing.Color]::FromArgb(240, 100, 20)
 $btnCurseForge.ForeColor = [System.Drawing.Color]::White
 $btnCurseForge.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
@@ -4455,7 +5471,7 @@ $tabModManager.Controls.Add($btnCurseForge)
 
 $lblNotesTitle = New-Object System.Windows.Forms.Label
 $lblNotesTitle.Text = "Mod Notes / Description:"
-$lblNotesTitle.Location = New-Object System.Drawing.Point(770, 425)
+$lblNotesTitle.Location = New-Object System.Drawing.Point(770, 510)
 $lblNotesTitle.Size = New-Object System.Drawing.Size(200, 20)
 $lblNotesTitle.ForeColor = $colorText
 $lblNotesTitle.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
@@ -4464,8 +5480,8 @@ $tabModManager.Controls.Add($lblNotesTitle)
 $script:txtModNotes = New-Object System.Windows.Forms.TextBox
 $script:txtModNotes.Multiline = $true
 $script:txtModNotes.ScrollBars = "Vertical"
-$script:txtModNotes.Location = New-Object System.Drawing.Point(770, 450)
-$script:txtModNotes.Size = New-Object System.Drawing.Size(200, 110)
+$script:txtModNotes.Location = New-Object System.Drawing.Point(770, 535)
+$script:txtModNotes.Size = New-Object System.Drawing.Size(200, 60)
 $script:txtModNotes.BackColor = $colorTextboxBack
 $script:txtModNotes.ForeColor = $colorTextboxText
 $script:txtModNotes.Font = New-Object System.Drawing.Font("Consolas", 8)
@@ -4475,8 +5491,8 @@ $tabModManager.Controls.Add($script:txtModNotes)
 
 $btnSaveNotes = New-Object System.Windows.Forms.Button
 $btnSaveNotes.Text = "Save Notes"
-$btnSaveNotes.Location = New-Object System.Drawing.Point(770, 565)
-$btnSaveNotes.Size = New-Object System.Drawing.Size(200, 30)
+$btnSaveNotes.Location = New-Object System.Drawing.Point(770, 600)
+$btnSaveNotes.Size = New-Object System.Drawing.Size(200, 25)
 Style-Button $btnSaveNotes
 $btnSaveNotes.Add_Click({ Update-ModNotes })
 $tabModManager.Controls.Add($btnSaveNotes)
@@ -4489,7 +5505,7 @@ $script:modListView.Add_SelectedIndexChanged({ Show-ModNotes })
 # =====================
 
 $lblQuickTips = New-Object System.Windows.Forms.Label
-$lblQuickTips.Text = "TIP: Drag .jar files directly into the list! | GREEN=Enabled | RED=Disabled | YELLOW=Conflict Warning"
+$lblQuickTips.Text = "TIP: Drag .jar files directly into the list! | GREEN=Enabled | RED=Disabled | YELLOW=Conflict | ORANGE=Update Available"
 $lblQuickTips.Location = New-Object System.Drawing.Point(10, 605)
 $lblQuickTips.Size = New-Object System.Drawing.Size(750, 20)
 $lblQuickTips.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 150)
@@ -4516,9 +5532,6 @@ Load-Config
 # Initial file check
 Check-ServerFiles
 
-# Initial mod list population
-Refresh-ModList
-
 # Create tray icon (for minimize-to-tray)
 Create-TrayIcon
 
@@ -4539,8 +5552,15 @@ if (-not $script:statsTimer) {
     $script:statsTimer.Start()
 }
 
-# Load saved window settings (size/position/last tab)
+# Load saved settings
 Load-Settings
+
+# Load CurseForge metadata
+Load-CurseForgeMetadata
+
+# Refresh mod list to show CF status
+Refresh-ModList
+
 
 # Clean shutdown when GUI is closed: stop server, unregister events, dispose timers/counters/watchers, save settings
 $form.Add_FormClosing({
