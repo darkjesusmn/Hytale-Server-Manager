@@ -146,11 +146,9 @@ The **Mod Manager Tab** allows you to manage installed mods.
 
 
 
-<img width="1180" height="638" alt="{88D7501D-2B5F-4556-991A-7E951DD44F7B}" src="https://github.com/user-attachments/assets/8576a157-09eb-4da3-b7db-5dfbf3a2c8ce" />
-
-<img width="1179" height="406" alt="{09CD1A69-6DFA-49E5-BB4C-7D1D47407508}" src="https://github.com/user-attachments/assets/09f84596-3c2b-4ef1-9857-2838d853754d" />
-
-<img width="1179" height="638" alt="{ADFB9C6D-579B-4EE5-B075-F6AB4304B27F}" src="https://github.com/user-attachments/assets/428f6def-99b5-4ed3-a4ad-83a2bf5f0e24" />
+<img width="1160" height="636" alt="{884379E5-A0EB-418A-AA97-FA794199F15D}" src="https://github.com/user-attachments/assets/47430e7f-bd9f-41b9-9cc8-34036139a365" />
+<img width="1180" height="638" alt="{B11930AB-D292-45AD-AD50-52A491D50703}" src="https://github.com/user-attachments/assets/e021404c-a70d-4e35-ab8c-35bafc4925c6" />
+<img width="1177" height="632" alt="{CEFE5649-5314-4E47-A4B7-736E2B78166C}" src="https://github.com/user-attachments/assets/7e54a4c6-c2e4-42ef-96a3-0f370ace1313" />
 
 
 
