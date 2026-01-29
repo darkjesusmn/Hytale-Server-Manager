@@ -10,18 +10,61 @@
 
 ### **Steps to Install and Run**
 1. **Download the Script and Downloader**
-   - Download the `HytaleServerManagerGUI.ps1` script from the provided source.
-   - Download the `hytale-downloader-windows-amd64.exe` from the Hytale GitHub repository.
-   - Place both files in the same directory (e.g., `C:\HytaleServerManager`).
+   - Download the `HytaleServerManager.ps1` script from the provided source.
+   - Place file in the same directory as your server(e.g., `C:\HytaleServer`).
 
 2. **Run the Script**
-   - **Right-click** the `HytaleServerManagerGUI.ps1` file.
+   - **Right-click** the `HytaleServerManager.ps1` file.
    - Select **"Run with PowerShell"** from the context menu.
    - **No admin permissions are required** for this step.
 
-3. **First-Time Setup**
-   - The GUI will open, but **no server files will be downloaded automatically**.
-   - You must manually click the **"Update Server"** button in the **"Server Maintenance"** tab to download required files (e.g., `HytaleServer.jar`, `Assets.zip`, etc.).
+3. ## 🟢 First-Time Setup for Hytale Server Manager
+
+### 1️⃣ Launch the Manager for the First Time
+- Open **Hytale_Server_Manager_DJMN.ps1** in PowerShell.  
+- The GUI will launch even if no files or folders exist.  
+- You’ll see warnings that required server files are missing — this is normal.  
+
+---
+
+### 2️⃣ Download the Server Downloader
+- Click the **“Update Downloader”** button.  
+- This downloads the `hytale-downloader-windows-amd64.exe` file required to fetch the server.  
+- The GUI remains fully functional during this process.
+
+---
+
+### 3️⃣ Download the Server Files
+- Click the **“Update Server”** button.  
+- The downloader executable will open a window asking for an **authorization code/link**.  
+- Follow the instructions in the window to authorize your account.  
+- The downloader will fetch and extract **all necessary server files**, including:
+  - `HytaleServer.jar`  
+  - `Assets.zip`  
+  - Config skeletons and folders  
+- At this point, your server folder is fully populated and ready for first launch.
+
+---
+
+### 4️⃣ Start the Server
+- Go to the **Control tab** and click **Start Server**.  
+- The console tab will show server logs.  
+- The server will start and may prompt for a new **authorization link** to connect to Hytale’s official server network.  
+- Follow the link to complete authorization.
+
+---
+
+### 5️⃣ Optional: Authenticate the Server Easily
+- In the **Console tab**, a new **`/auth login device`** button allows you to send the command automatically.  
+- This generates the authorization link for connecting your server to Hytale servers without manually typing it.
+
+---
+
+### ✅ Notes
+- All tabs (Control, Config, Mod Manager) are **fully zero-state safe** — the GUI won’t crash if files are missing.  
+- Warnings are displayed instead of failing silently.  
+- After this setup, you can start, stop, and configure the server fully through the manager.  
+
 
 ---
 
