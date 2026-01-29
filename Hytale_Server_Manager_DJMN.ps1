@@ -1144,166 +1144,65 @@ function Check-ServerFiles {
 function Update-CPUAndRAMUsage {
     try {
         # -------------------------
-        # Step 1: Process-specific stats
-        # Only if server is running and process is valid
+        # System-wide CPU stats
         # -------------------------
-        if ($script:serverRunning -and $script:serverProcess -and -not $script:serverProcess.HasExited) {
-            try {
-                # Get Process object for server
-                $proc = Get-Process -Id $script:serverProcess.Id -ErrorAction Stop
+        if (-not $script:systemCpuCounter) {
+            $script:systemCpuCounter = New-Object System.Diagnostics.PerformanceCounter(
+                "Processor", "% Processor Time", "_Total", $true
+            )
+            $null = $script:systemCpuCounter.NextValue()
+        }
 
-                # -------------------------
-                # Step 1a: Memory usage in MB
-                # -------------------------
-                $memoryUsageMB = [math]::Round([double]$proc.WorkingSet64 / 1MB, 2)
+        Start-Sleep -Milliseconds 200
+        $sysCpu = [math]::Round($script:systemCpuCounter.NextValue(), 1)
 
-                # Clamp invalid or negative memory readings to zero, log warning once
-                if ([double]::IsNaN($memoryUsageMB) -or $memoryUsageMB -lt 0) {
-                    if (-not $script:_warnedNegativeMemory) {
-                        $txtConsole.AppendText("[WARN] Negative or invalid process memory read; clamped to 0.`r`n")
-                        $script:_warnedNegativeMemory = $true
-                    }
-                    $memoryUsageMB = 0
-                }
+        # -------------------------
+        # System-wide RAM stats
+        # -------------------------
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+        $totalKB = [double]$os.TotalVisibleMemorySize
+        $freeKB  = [double]$os.FreePhysicalMemory
+        $usedKB  = $totalKB - $freeKB
 
-                # -------------------------
-                # Step 1b: CPU usage per process
-                # -------------------------
-                try {
-                    # Create or refresh PerformanceCounter for server process
-                    if (-not $script:cpuCounter -or $script:cpuCounter.InstanceName -ne $proc.ProcessName) {
-                        if ($script:cpuCounter) { $script:cpuCounter.Dispose() }
-                        $script:cpuCounter = New-Object System.Diagnostics.PerformanceCounter("Process","% Processor Time",$proc.ProcessName,$true)
-                        $null = $script:cpuCounter.NextValue() # initial read
-                    }
+        $usedMB  = [math]::Round($usedKB / 1024, 1)
+        $totalMB = [math]::Round($totalKB / 1024, 1)
 
-                    # Small sleep needed for accurate CPU reading
-                    Start-Sleep -Milliseconds 200
-                    $rawCpu = $script:cpuCounter.NextValue()
-
-                    # Divide by processor count to get actual percent usage
-                    $cpuUsage = [math]::Round($rawCpu / [Environment]::ProcessorCount, 1)
-                } catch {
-                    # On error, default to zero CPU
-                    $cpuUsage = 0
-                }
-
-                # -------------------------
-                # Step 1c: RAM percent calculation
-                # -------------------------
-                $maxRamMB = 0
-                if ($script:maxRamGB -and ($script:maxRamGB -as [double]) -gt 0) {
-                    # Use configured max RAM if >0
-                    $maxRamMB = [double]$script:maxRamGB * 1024
-                } else {
-                    # Fallback: total system memory
-                    try {
-                        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
-                        $totalKB = [double]$os.TotalVisibleMemorySize
-                        $maxRamMB = [math]::Round($totalKB / 1024, 2)
-                    } catch { $maxRamMB = 0 }
-                }
-
-                # Compute RAM percentage, clamp negative values
-                $ramPercent = 0
-                if ($maxRamMB -gt 0) {
-                    $ramPercent = [math]::Round(($memoryUsageMB / $maxRamMB) * 100, 1)
-                    if ($ramPercent -lt 0) { $ramPercent = 0 }
-                }
-
-                # -------------------------
-                # Step 1d: Update GUI labels
-                # -------------------------
-                $lblCPU.Text = "Process CPU: ${cpuUsage}%"
-                $lblRAM.Text = "Process RAM: ${memoryUsageMB} MB ($ramPercent`%)"
-
-                if ($script:serverStartTime) {
-                    $lblUptime.Text = "Uptime: " + (Format-Uptime $script:serverStartTime)
-                } else {
-                    $lblUptime.Text = "Uptime: N/A"
-                }
-
-                # -------------------------
-                # Step 1e: Color thresholds
-                # Green <50%, Orange 50-79%, Red >=80%
-                # -------------------------
-                if ($cpuUsage -ge 80) {
-                    $lblCPU.ForeColor = [System.Drawing.Color]::Red
-                } elseif ($cpuUsage -ge 50) {
-                    $lblCPU.ForeColor = [System.Drawing.Color]::Orange
-                } else {
-                    $lblCPU.ForeColor = [System.Drawing.Color]::LightGreen
-                }
-
-                if ($ramPercent -ge 80) {
-                    $lblRAM.ForeColor = [System.Drawing.Color]::Red
-                } elseif ($ramPercent -ge 50) {
-                    $lblRAM.ForeColor = [System.Drawing.Color]::Orange
-                } else {
-                    $lblRAM.ForeColor = [System.Drawing.Color]::LightGreen
-                }
-
-                return
-            } catch {
-                # Process disappeared or error, fallback to system-wide stats
-                $lblUptime.Text = "Uptime: N/A"
-            }
+        $memPercent = 0
+        if ($totalMB -gt 0) {
+            $memPercent = [math]::Round(($usedMB / $totalMB) * 100, 1)
         }
 
         # -------------------------
-        # Step 2: System-wide stats when no server process is available
+        # Update GUI
         # -------------------------
-        try {
-            # Initialize total CPU counter if missing
-            if (-not $script:systemCpuCounter) {
-                $script:systemCpuCounter = New-Object System.Diagnostics.PerformanceCounter("Processor","% Processor Time","_Total",$true)
-                $null = $script:systemCpuCounter.NextValue()
-            }
+        $lblCPU.Text = "System CPU: ${sysCpu}%"
+        $lblRAM.Text = "System RAM: ${usedMB} MB / ${totalMB} MB (${memPercent}%)"
+        $lblUptime.Text = "Uptime: $(Format-Uptime $script:serverStartTime)"
 
-            Start-Sleep -Milliseconds 200
-            $sysRaw = $script:systemCpuCounter.NextValue()
-            $sysCpu = [math]::Round($sysRaw, 1)
-
-            # Memory usage
-            $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
-            $totalKB = [double]$os.TotalVisibleMemorySize
-            $freeKB  = [double]$os.FreePhysicalMemory
-            $usedKB  = $totalKB - $freeKB
-            $usedMB  = [math]::Round($usedKB / 1024, 1)
-            $totalMB = [math]::Round($totalKB / 1024, 1)
-            $memPercent = 0
-            if ($totalMB -gt 0) { $memPercent = [math]::Round(($usedMB / $totalMB) * 100, 1) }
-
-            # Update GUI
-            $lblCPU.Text = "System CPU: ${sysCpu}%"
-            $lblRAM.Text = "System RAM: ${usedMB} MB / ${totalMB} MB (${memPercent}%)"
-            $lblUptime.Text = "Uptime: N/A"
-
-            # -------------------------
-            # Step 2a: Apply color thresholds for system stats
-            # -------------------------
-            if ($sysCpu -ge 80) {
-                $lblCPU.ForeColor = [System.Drawing.Color]::Red
-            } elseif ($sysCpu -ge 50) {
-                $lblCPU.ForeColor = [System.Drawing.Color]::Orange
-            } else {
-                $lblCPU.ForeColor = [System.Drawing.Color]::LightGreen
-            }
-
-            if ($memPercent -ge 80) {
-                $lblRAM.ForeColor = [System.Drawing.Color]::Red
-            } elseif ($memPercent -ge 50) {
-                $lblRAM.ForeColor = [System.Drawing.Color]::Orange
-            } else {
-                $lblRAM.ForeColor = [System.Drawing.Color]::LightGreen
-            }
-        } catch {
-            #
+        # -------------------------
+        # Color thresholds
+        # -------------------------
+        $lblCPU.ForeColor = if ($sysCpu -ge 80) {
+            [System.Drawing.Color]::Red
+        } elseif ($sysCpu -ge 50) {
+            [System.Drawing.Color]::Orange
+        } else {
+            [System.Drawing.Color]::LightGreen
         }
+
+        $lblRAM.ForeColor = if ($memPercent -ge 80) {
+            [System.Drawing.Color]::Red
+        } elseif ($memPercent -ge 50) {
+            [System.Drawing.Color]::Orange
+        } else {
+            [System.Drawing.Color]::LightGreen
+        }
+
     } catch {
-        # 
+        # Optional: swallow errors to avoid GUI crashes
     }
 }
+
 
 # =====================
 # Function: Update-PlayerCount
@@ -1734,6 +1633,104 @@ function Save-Permissions {
 }
 
 # =====================
+# Function: Open-ConfigFile
+# =====================
+# PURPOSE:
+# Opens the config.json file in the system's default text editor.
+# Allows users to edit the configuration file in their preferred editor
+# (Notepad, VS Code, Notepad++, etc.) instead of the built-in editor.
+#
+# WHY THIS EXISTS:
+# - Some users prefer their own editor with syntax highlighting and features
+# - Allows quick access without loading the file into the GUI editor first
+# - Familiar workflow for power users
+#
+# PARAMETERS:
+# None
+#
+# OPERATION FLOW:
+# Step 1: Verify config.json exists
+# Step 2: Open file with default application (system association)
+# Step 3: Show error if file doesn't exist
+# =====================
+function Open-ConfigFile {
+    try {
+        # Step 1: Check if config file exists
+        if (-not (Test-Path $script:configPath)) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "config.json not found at: $script:configPath",
+                "File Not Found",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            )
+            return
+        }
+
+        # Step 2: Open the file with default associated editor
+        Start-Process -FilePath $script:configPath
+        $txtConsole.AppendText("[INFO] Opened config.json in default editor`r`n")
+    } catch {
+        # Step 3: Handle any errors
+        [System.Windows.Forms.MessageBox]::Show(
+            "Error opening config.json: $_",
+            "Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+        $txtConsole.AppendText("[ERR] Failed to open config.json: $_`r`n")
+    }
+}
+
+# =====================
+# Function: Open-PermissionsFile
+# =====================
+# PURPOSE:
+# Opens the permissions.json file in the system's default text editor.
+# Allows users to edit the permissions file in their preferred editor
+# (Notepad, VS Code, Notepad++, etc.) instead of the built-in editor.
+#
+# WHY THIS EXISTS:
+# - Some users prefer their own editor with syntax highlighting and features
+# - Allows quick access without loading the file into the GUI editor first
+# - Familiar workflow for power users
+#
+# PARAMETERS:
+# None
+#
+# OPERATION FLOW:
+# Step 1: Verify permissions.json exists
+# Step 2: Open file with default application (system association)
+# Step 3: Show error if file doesn't exist
+# =====================
+function Open-PermissionsFile {
+    try {
+        # Step 1: Check if permissions file exists
+        if (-not (Test-Path $script:permissionsPath)) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "permissions.json not found at: $script:permissionsPath",
+                "File Not Found",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            )
+            return
+        }
+
+        # Step 2: Open the file with default associated editor
+        Start-Process -FilePath $script:permissionsPath
+        $txtConsole.AppendText("[INFO] Opened permissions.json in default editor`r`n")
+    } catch {
+        # Step 3: Handle any errors
+        [System.Windows.Forms.MessageBox]::Show(
+            "Error opening permissions.json: $_",
+            "Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+        $txtConsole.AppendText("[ERR] Failed to open permissions.json: $_`r`n")
+    }
+}
+
+# =====================
 # Function: Run-DownloaderCommand
 # =====================
 # PURPOSE:
@@ -1805,7 +1802,10 @@ function Run-DownloaderCommand {
         $errorOutput = $process.StandardError.ReadToEnd()
 
         # Step 5: Wait for process to finish
-        $process.WaitForExit()
+        while (-not $process.HasExited) {
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 100
+        }
 
         # Step 6: Append stdout and stderr to Update Log
         if ($output) { $txtUpdateLog.AppendText($output + "`r`n") }
@@ -2437,7 +2437,13 @@ function Restart-Server {
         $waitTime = $currentTime - $interval
         
         if ($waitTime -gt 0) {
-            Start-Sleep -Seconds $waitTime
+            # RESPONSIVE SLEEP - keeps GUI alive
+            $sleepEnd = (Get-Date).AddSeconds($waitTime)
+            while ((Get-Date) -lt $sleepEnd) {
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 100
+            }
+            
             $countdownSeconds = $interval
             
             # Send warning message
@@ -2455,14 +2461,22 @@ function Restart-Server {
     Send-ServerCommand "/say [SERVER] RESTARTING NOW! Please reconnect in a moment..."
     $txtConsole.AppendText("[INFO] Initiating restart sequence...`r`n")
     
-    # Small delay for final message to be sent
-    Start-Sleep -Seconds 2
+    # RESPONSIVE SLEEP - Small delay for final message
+    $sleepEnd = (Get-Date).AddSeconds(2)
+    while ((Get-Date) -lt $sleepEnd) {
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 100
+    }
     
     # Step 3: Stop server
     Stop-Server
     
-    # Step 4: Wait for resources to release
-    Start-Sleep -Seconds 5
+    # RESPONSIVE SLEEP - Wait for resources to release
+    $sleepEnd = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $sleepEnd) {
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 100
+    }
     
     # Step 5: Start server
     Start-Server
@@ -2478,13 +2492,10 @@ function Update-Server {
     # Step 0: Check if downloader exists
     # ==============================
     if (-not (Test-Path $script:downloaderPath)) {
-        # Log error to update log textbox
         $txtUpdateLog.AppendText("[ERROR] Downloader not found at: $script:downloaderPath`r`n")
-        # Provide user guidance in update log
         $txtUpdateLog.AppendText("[INFO] Please download 'hytale-downloader-windows-amd64.exe' and place it in the server directory.`r`n")
-        # Show GUI popup error
         [System.Windows.Forms.MessageBox]::Show("Downloader executable not found!`n`nPlease download 'hytale-downloader-windows-amd64.exe' and place it in the server folder.", "Error")
-        return  # Abort update
+        return
     }
 
     # ==============================
@@ -2492,11 +2503,14 @@ function Update-Server {
     # ==============================
     $wasRunning = $false
     if ($script:serverRunning) {
-        # Inform the user in the log
         $txtUpdateLog.AppendText("[INFO] Server is running - stopping for update...`r`n")
-        $wasRunning = $true  # Track that server was running
-        Stop-Server          # Call Stop-Server function to gracefully stop the server
-        Start-Sleep -Seconds 3  # Small delay to ensure process has released resources
+        $wasRunning = $true
+        Stop-Server
+        $sleepEnd = (Get-Date).AddSeconds(3)
+        while ((Get-Date) -lt $sleepEnd) {
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 100
+        }
     }
 
     # ==============================
@@ -2505,61 +2519,55 @@ function Update-Server {
     $existingZips = Get-ChildItem -Path $PSScriptRoot -Filter "*.zip" | Where-Object { $_.Name -notlike "Assets.zip" }
     $latestExistingZip = $null
     if ($existingZips.Count -gt 0) {
-        # Take the latest ZIP by LastWriteTime
         $latestExistingZip = $existingZips | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         $txtUpdateLog.AppendText("[INFO] Existing latest zip before download: $($latestExistingZip.Name)`r`n")
     }
 
     try {
-        # Header info in update log
         $txtUpdateLog.AppendText("========================================`r`n")
         $txtUpdateLog.AppendText("[INFO] Starting Hytale Server Update`r`n")
         $txtUpdateLog.AppendText("========================================`r`n")
         $txtUpdateLog.AppendText("[INFO] Running downloader: $script:downloaderPath`r`n")
 
         # ==============================
-        # Step 2: Run the downloader
+        # Step 2: Run the downloader (GUI-friendly)
         # ==============================
         $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $script:downloaderPath       # Set executable path
-        $psi.WorkingDirectory = $PSScriptRoot        # Ensure it runs in the server folder
-        $psi.UseShellExecute = $false                # Required for redirecting output
-        $psi.RedirectStandardOutput = $true          # Capture stdout
-        $psi.RedirectStandardError = $true           # Capture stderr
-        $psi.CreateNoWindow = $true                  # Hide console window
+        $psi.FileName = $script:downloaderPath
+        $psi.WorkingDirectory = $PSScriptRoot
+        $psi.UseShellExecute = $true        # Must be true for GUI apps
+        $psi.CreateNoWindow = $false        # Show the GUI for authorization
+        $psi.RedirectStandardOutput = $false
+        $psi.RedirectStandardError = $false
 
         $updateProcess = New-Object System.Diagnostics.Process
-        $updateProcess.StartInfo = $psi              # Assign ProcessStartInfo
-        $updateProcess.Start() | Out-Null           # Start the downloader process
+        $updateProcess.StartInfo = $psi
 
-        $txtUpdateLog.AppendText("[INFO] Downloading latest server files...`r`n")
+        # Start the GUI downloader
+        $updateProcess.Start() | Out-Null
+        $txtUpdateLog.AppendText("[INFO] Downloader launched. Please complete authorization in the pop-up window...`r`n")
 
-        # Capture process output/error
-        $output = $updateProcess.StandardOutput.ReadToEnd()
-        $errorOutput = $updateProcess.StandardError.ReadToEnd()
-        $updateProcess.WaitForExit()                # Wait for completion
+        # Wait for process to finish while keeping GUI responsive
+        while (-not $updateProcess.HasExited) {
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 100
+        }
 
-        # Log outputs
-        if ($output) { $txtUpdateLog.AppendText($output + "`r`n") }
-        if ($error) { $txtUpdateLog.AppendText("[ERROR] $error`r`n") }
+        $txtUpdateLog.AppendText("[INFO] Downloader finished (Exit Code: $($updateProcess.ExitCode))`r`n")
 
-        $txtUpdateLog.AppendText("[INFO] Download process completed (Exit Code: $($updateProcess.ExitCode))`r`n")
-
-        # If download failed (non-zero exit code)
         if ($updateProcess.ExitCode -ne 0) {
             $txtUpdateLog.AppendText("[WARN] Downloader exited with non-zero code. Update may have failed.`r`n")
             [System.Windows.Forms.MessageBox]::Show("Download may have failed. Check the update log for details.", "Warning")
             
-            # Auto-restart server if it was running
             if ($wasRunning -and $chkAutoRestart.Checked) {
                 $txtUpdateLog.AppendText("[INFO] Restarting server...`r`n")
                 Start-Server
             }
-            return  # Abort update
+            return
         }
 
         # ==============================
-        # Step 3: Find the downloaded zip file
+        # Step 3+: Continue as normal
         # ==============================
         $txtUpdateLog.AppendText("[INFO] Searching for downloaded files...`r`n")
         $zipFiles = Get-ChildItem -Path $PSScriptRoot -Filter "*.zip" | 
@@ -2577,9 +2585,9 @@ function Update-Server {
             return
         }
 
-        $downloadedZip = $zipFiles[0]  # Take newest ZIP
+        $downloadedZip = $zipFiles[0]
         $txtUpdateLog.AppendText("[INFO] Found: $($downloadedZip.Name) ($([math]::Round($downloadedZip.Length / 1MB, 2)) MB)`r`n")
-
+        
         # ==============================
         # Step 4: Remove old zip if a new zip was downloaded
         # ==============================
@@ -2683,7 +2691,11 @@ function Update-Server {
         # Auto-restart server if previously running and checkbox enabled
         if ($wasRunning -and $chkAutoRestart.Checked) {
             $txtUpdateLog.AppendText("[INFO] Auto-restart enabled - restarting server in 3 seconds...`r`n")
-            Start-Sleep -Seconds 3
+            $sleepEnd = (Get-Date).AddSeconds(3)
+        while ((Get-Date) -lt $sleepEnd) {
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 100
+        }
             Start-Server
             [System.Windows.Forms.MessageBox]::Show(
                 "Update completed successfully!`n`nNew files: $filesCopied`nUpdated files: $filesUpdated`n`nServer has been restarted.",
@@ -2812,7 +2824,11 @@ function Restore-ServerBackup {
     if ($script:serverRunning) {
         $txtUpdateLog.AppendText("[BACKUP] Stopping server for restore...`r`n")
         Stop-Server
-        Start-Sleep -Seconds 3
+        $sleepEnd = (Get-Date).AddSeconds(3)
+        while ((Get-Date) -lt $sleepEnd) {
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 100
+        }
     }
     
     try {
@@ -4376,6 +4392,248 @@ function Show-ModNotes {
     $script:txtModNotes.ReadOnly = $false
 }
 
+# =====================
+# Function: Get-ModConfigFolders
+# =====================
+# PURPOSE:
+# Scans the mods folder for mod configuration directories and their config files.
+# Mods typically create folders with their config files after first run.
+#
+# WHY THIS EXISTS:
+# - Provides a way to discover available mod config files
+# - Allows browsing mod config structure without file explorer
+# - Returns organized data about each mod's config files
+#
+# PARAMETERS:
+# None
+#
+# RETURN VALUE:
+# - Returns an array of PSCustomObjects containing:
+#   - ModName: The name of the mod folder
+#   - ConfigPath: Full path to the mod's config folder
+#   - ConfigFiles: Array of .json, .conf, .toml files found
+#   - FileCount: Number of config files found
+#
+# OPERATION FLOW:
+# Step 1: Check if mods folder exists
+# Step 2: Scan for all directories in mods folder
+# Step 3: Look for config files in each directory
+# Step 4: Return organized results
+# =====================
+function Get-ModConfigFolders {
+    try {
+        # Step 1: Verify mods folder exists
+        if (-not (Test-Path $script:modsPath)) {
+            return @()
+        }
+
+        # Step 2: Get all directories in mods folder
+        $modDirectories = Get-ChildItem -Path $script:modsPath -Directory -ErrorAction SilentlyContinue
+
+        # Step 3: Scan each directory for config files
+        $modConfigs = @()
+        foreach ($modDir in $modDirectories) {
+            # Look for common config file extensions
+            $configFiles = Get-ChildItem -Path $modDir.FullName -File -ErrorAction SilentlyContinue | 
+                Where-Object { $_.Extension -match '\.(json|conf|toml|yaml|yml|properties|cfg)$' }
+
+            if ($configFiles -or (Get-ChildItem -Path $modDir.FullName -Directory -ErrorAction SilentlyContinue).Count -gt 0) {
+                $modConfigs += [PSCustomObject]@{
+                    ModName = $modDir.Name
+                    ConfigPath = $modDir.FullName
+                    ConfigFiles = $configFiles
+                    FileCount = if ($configFiles) { $configFiles.Count } else { 0 }
+                    HasSubfolders = (Get-ChildItem -Path $modDir.FullName -Directory -ErrorAction SilentlyContinue).Count -gt 0
+                }
+            }
+        }
+
+        return $modConfigs
+    } catch {
+        Write-Host "Error getting mod config folders: $_"
+        return @()
+    }
+}
+
+# =====================
+# Function: Open-ModConfigFolder
+# =====================
+# PURPOSE:
+# Opens the selected mod's config folder in Windows File Explorer.
+# Allows users to browse and manage mod config files directly.
+#
+# WHY THIS EXISTS:
+# - Some users prefer managing configs in File Explorer
+# - Allows viewing folder structure and all mod-related files
+# - Lets users use their preferred config editors
+#
+# PARAMETERS:
+# - $modName ([string])
+#   The name of the mod folder to open
+#
+# OPERATION FLOW:
+# Step 1: Construct the full path to the mod folder
+# Step 2: Verify the folder exists
+# Step 3: Open in File Explorer
+# Step 4: Log action and show error if needed
+# =====================
+function Open-ModConfigFolder {
+    param([string]$modName)
+
+    try {
+        # Step 1: Build the path
+        $modPath = Join-Path $script:modsPath $modName
+
+        # Step 2: Check if folder exists
+        if (-not (Test-Path $modPath)) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Mod folder not found: $modPath",
+                "Folder Not Found",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            )
+            return
+        }
+
+        # Step 3: Open with explorer
+        Start-Process -FilePath "explorer.exe" -ArgumentList $modPath
+        $txtConsole.AppendText("[INFO] Opened mod config folder: $modName`r`n")
+    } catch {
+        # Step 4: Error handling
+        [System.Windows.Forms.MessageBox]::Show(
+            "Error opening mod folder: $_",
+            "Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+        $txtConsole.AppendText("[ERR] Failed to open mod folder: $_`r`n")
+    }
+}
+
+# =====================
+# Function: Show-ModConfigPicker
+# =====================
+# PURPOSE:
+# Displays a dialog to browse and select mod config files for editing.
+# Allows users to pick which mod config to load into the editor.
+#
+# WHY THIS EXISTS:
+# - Provides a UI for discovering available mod configs
+# - Allows browsing mod folder structure within the GUI
+# - Makes it easy to load mod configs into the editor without file explorer
+#
+# PARAMETERS:
+# None
+#
+# OPERATION FLOW:
+# Step 1: Get all mod config folders
+# Step 2: Build a dialog to display them
+# Step 3: Allow user to select a mod
+# Step 4: Load selected config into editor
+# Step 5: Handle cancellation or no selection
+# =====================
+function Show-ModConfigPicker {
+    try {
+        # Step 1: Get available mod configs
+        $modConfigs = Get-ModConfigFolders
+
+        if ($modConfigs.Count -eq 0) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "No mod config folders found. Make sure mods have been run at least once to generate their config folders.",
+                "No Mods Found",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information
+            )
+            return
+        }
+
+        # Step 2: Create dialog form
+        $configPickerForm = New-Object System.Windows.Forms.Form
+        $configPickerForm.Text = "Select Mod Config to Edit"
+        $configPickerForm.Size = New-Object System.Drawing.Size(500, 400)
+        $configPickerForm.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+        $configPickerForm.BackColor = $colorBack
+        $configPickerForm.ForeColor = $colorText
+        $configPickerForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+        $configPickerForm.MaximizeBox = $false
+        $configPickerForm.MinimizeBox = $false
+
+        # Label
+        $lblSelectMod = New-Object System.Windows.Forms.Label
+        $lblSelectMod.Text = "Select a mod to view its config folder:"
+        $lblSelectMod.Location = New-Object System.Drawing.Point(10, 10)
+        $lblSelectMod.Size = New-Object System.Drawing.Size(470, 25)
+        $lblSelectMod.ForeColor = $colorText
+        $configPickerForm.Controls.Add($lblSelectMod)
+
+        # ListBox for mod configs
+        $lstMods = New-Object System.Windows.Forms.ListBox
+        $lstMods.Location = New-Object System.Drawing.Point(10, 40)
+        $lstMods.Size = New-Object System.Drawing.Size(470, 250)
+        $lstMods.BackColor = $colorTextboxBack
+        $lstMods.ForeColor = $colorTextboxText
+        $lstMods.Font = New-Object System.Drawing.Font("Consolas", 9)
+
+        # Populate with mod names
+        foreach ($mod in $modConfigs) {
+            $lstMods.Items.Add("$($mod.ModName) ($($mod.FileCount) config files)")
+        }
+
+        $configPickerForm.Controls.Add($lstMods)
+
+        # Info label
+        $lblInfo = New-Object System.Windows.Forms.Label
+        $lblInfo.Text = "Double-click to open folder, or select and click 'Open Folder'"
+        $lblInfo.Location = New-Object System.Drawing.Point(10, 300)
+        $lblInfo.Size = New-Object System.Drawing.Size(470, 30)
+        $lblInfo.ForeColor = [System.Drawing.Color]::LightGray
+        $lblInfo.Font = New-Object System.Drawing.Font("Arial", 8, [System.Drawing.FontStyle]::Italic)
+        $configPickerForm.Controls.Add($lblInfo)
+
+        # Buttons
+        $btnOpenFolder = New-Object System.Windows.Forms.Button
+        $btnOpenFolder.Text = "Open Folder"
+        $btnOpenFolder.Location = New-Object System.Drawing.Point(150, 340)
+        $btnOpenFolder.Size = New-Object System.Drawing.Size(150, 30)
+        Style-Button $btnOpenFolder
+        $btnOpenFolder.Add_Click({
+            if ($lstMods.SelectedIndex -ge 0) {
+                $selectedMod = $modConfigs[$lstMods.SelectedIndex].ModName
+                Open-ModConfigFolder $selectedMod
+                $configPickerForm.Close()
+            }
+        })
+        $configPickerForm.Controls.Add($btnOpenFolder)
+
+        $btnCancel = New-Object System.Windows.Forms.Button
+        $btnCancel.Text = "Cancel"
+        $btnCancel.Location = New-Object System.Drawing.Point(310, 340)
+        $btnCancel.Size = New-Object System.Drawing.Size(150, 30)
+        Style-Button $btnCancel
+        $btnCancel.Add_Click({ $configPickerForm.Close() })
+        $configPickerForm.Controls.Add($btnCancel)
+
+        # Double-click to open
+        $lstMods.Add_DoubleClick({
+            if ($lstMods.SelectedIndex -ge 0) {
+                $selectedMod = $modConfigs[$lstMods.SelectedIndex].ModName
+                Open-ModConfigFolder $selectedMod
+                $configPickerForm.Close()
+            }
+        })
+
+        # Show the form
+        $configPickerForm.ShowDialog() | Out-Null
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Error opening mod config picker: $_",
+            "Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+    }
+}
+
 # ==========================================================================================
 # SECTION: PRIMARY GUI COMPONENTS
 # ==========================================================================================
@@ -4676,6 +4934,21 @@ $btnSendCommand.Add_Click({
 })
 $tabServer.Controls.Add($btnSendCommand)
 
+# =====================
+# AUTH LOGIN DEVICE BUTTON
+# =====================
+$btnAuthLogin = New-Object System.Windows.Forms.Button
+$btnAuthLogin.Text = "Get Auth Link"
+$btnAuthLogin.Location = New-Object System.Drawing.Point(10, 555)
+$btnAuthLogin.Size = New-Object System.Drawing.Size(150, 25)
+Style-Button $btnAuthLogin
+$btnAuthLogin.Add_Click({
+    Send-ServerCommand "/auth login device"
+    $txtConsole.AppendText("[INFO] Authentication login device request sent. Check console for auth link.`r`n")
+})
+$tabServer.Controls.Add($btnAuthLogin)
+$toolTip.SetToolTip($btnAuthLogin, "Click to generate authentication link via /auth login device")
+
 # Enter key support and command history navigation
 $txtCommandInput.Add_KeyDown({
     if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Enter) {
@@ -4707,6 +4980,8 @@ $txtCommandInput.Add_KeyDown({
         }
     }
 })
+
+
 
 # =====================
 # COMMAND BUTTONS SECTION (COMBINED INTO ONE)
@@ -4901,13 +5176,24 @@ foreach ($cmd in ($allCommands.Keys | Sort-Object)) {
 }
 
 # =====================
-# CONFIG EDITOR TAB
+# CONFIG EDITOR TAB (ENHANCED)
 # =====================
 
 $tabConfig = New-Object System.Windows.Forms.TabPage
 $tabConfig.Text = "Configuration"
 $tabConfig.BackColor = $colorBack
 $tabs.TabPages.Add($tabConfig)
+
+# =====================
+# MAIN EDITOR SECTION
+# =====================
+
+$grpConfigEditor = New-Object System.Windows.Forms.GroupBox
+$grpConfigEditor.Text = "Configuration Editor"
+$grpConfigEditor.Location = New-Object System.Drawing.Point(10, 10)
+$grpConfigEditor.Size = New-Object System.Drawing.Size(760, 480)
+$grpConfigEditor.ForeColor = $colorText
+$tabConfig.Controls.Add($grpConfigEditor)
 
 $txtConfigEditor = New-Object System.Windows.Forms.RichTextBox
 $txtConfigEditor.Multiline = $true
@@ -4916,71 +5202,132 @@ $txtConfigEditor.BackColor = $colorTextboxBack
 $txtConfigEditor.ForeColor = $colorTextboxText
 $txtConfigEditor.Font = New-Object System.Drawing.Font("Consolas", 10)  # Monospaced font
 $txtConfigEditor.WordWrap = $false            # Prevent line breaking
-$txtConfigEditor.AcceptsTab = $true           # Tabs work for indentationtxtConfigEditor.AcceptsTab = $true           # Tabs work for indentation
+$txtConfigEditor.AcceptsTab = $true           # Tabs work for indentation
 $txtConfigEditor.EnableAutoDragDrop = $false
 $txtConfigEditor.DetectUrls = $false
-$txtConfigEditor.Location = New-Object System.Drawing.Point(10, 20)
-$txtConfigEditor.Size = New-Object System.Drawing.Size(760, 450)
-$tabConfig.Controls.Add($txtConfigEditor)
+$txtConfigEditor.Location = New-Object System.Drawing.Point(12, 25)
+$txtConfigEditor.Size = New-Object System.Drawing.Size(735, 440)
+$grpConfigEditor.Controls.Add($txtConfigEditor)
+
+# Info label for JSON syntax highlighting
+$lblSyntaxInfo = New-Object System.Windows.Forms.Label
+$lblSyntaxInfo.Text = "Tip: Edit JSON files directly. Use Ctrl+A to select all, Ctrl+Z to undo"
+$lblSyntaxInfo.Location = New-Object System.Drawing.Point(10, 495)
+$lblSyntaxInfo.Size = New-Object System.Drawing.Size(760, 20)
+$lblSyntaxInfo.ForeColor = [System.Drawing.Color]::LightGray
+$lblSyntaxInfo.Font = New-Object System.Drawing.Font("Arial", 8, [System.Drawing.FontStyle]::Italic)
+$tabConfig.Controls.Add($lblSyntaxInfo)
+
+# =====================
+# FILE OPERATIONS SECTION
+# =====================
+
+$grpFileOps = New-Object System.Windows.Forms.GroupBox
+$grpFileOps.Text = "File Operations"
+$grpFileOps.Location = New-Object System.Drawing.Point(790, 10)
+$grpFileOps.Size = New-Object System.Drawing.Size(185, 150)
+$grpFileOps.ForeColor = $colorText
+$tabConfig.Controls.Add($grpFileOps)
 
 $btnLoadConfig = New-Object System.Windows.Forms.Button
 $btnLoadConfig.Text = "Load Configuration"
-$btnLoadConfig.Location = New-Object System.Drawing.Point(790, 20)
-$btnLoadConfig.Size = New-Object System.Drawing.Size(180, 30)
+$btnLoadConfig.Location = New-Object System.Drawing.Point(8, 25)
+$btnLoadConfig.Size = New-Object System.Drawing.Size(169, 30)
 Style-Button $btnLoadConfig
 $btnLoadConfig.Add_Click({ Load-Config })
-$tabConfig.Controls.Add($btnLoadConfig)
+$grpFileOps.Controls.Add($btnLoadConfig)
+$toolTip.SetToolTip($btnLoadConfig, "Load the current config.json file into the editor")
 
 $btnSaveConfig = New-Object System.Windows.Forms.Button
 $btnSaveConfig.Text = "Save Configuration"
-$btnSaveConfig.Location = New-Object System.Drawing.Point(790, 60)
-$btnSaveConfig.Size = New-Object System.Drawing.Size(180, 30)
+$btnSaveConfig.Location = New-Object System.Drawing.Point(8, 62)
+$btnSaveConfig.Size = New-Object System.Drawing.Size(169, 30)
 Style-Button $btnSaveConfig
 $btnSaveConfig.Add_Click({ Save-Config })
-$tabConfig.Controls.Add($btnSaveConfig)
+$grpFileOps.Controls.Add($btnSaveConfig)
+$toolTip.SetToolTip($btnSaveConfig, "Save changes from the editor back to config.json")
+
+$btnOpenConfig = New-Object System.Windows.Forms.Button
+$btnOpenConfig.Text = "Open Config File"
+$btnOpenConfig.Location = New-Object System.Drawing.Point(8, 99)
+$btnOpenConfig.Size = New-Object System.Drawing.Size(169, 30)
+Style-Button $btnOpenConfig
+$btnOpenConfig.Add_Click({ Open-ConfigFile })
+$grpFileOps.Controls.Add($btnOpenConfig)
+$toolTip.SetToolTip($btnOpenConfig, "Open config.json in your default text editor")
+
+# =====================
+# PERMISSIONS SECTION
+# =====================
+
+$grpPermissions = New-Object System.Windows.Forms.GroupBox
+$grpPermissions.Text = "Permissions Management"
+$grpPermissions.Location = New-Object System.Drawing.Point(790, 170)
+$grpPermissions.Size = New-Object System.Drawing.Size(185, 150)
+$grpPermissions.ForeColor = $colorText
+$tabConfig.Controls.Add($grpPermissions)
 
 $btnLoadPermissions = New-Object System.Windows.Forms.Button
 $btnLoadPermissions.Text = "Load Permissions"
-$btnLoadPermissions.Location = New-Object System.Drawing.Point(790, 100)  # 40px below Load Config
-$btnLoadPermissions.Size = New-Object System.Drawing.Size(180, 30)
+$btnLoadPermissions.Location = New-Object System.Drawing.Point(8, 25)
+$btnLoadPermissions.Size = New-Object System.Drawing.Size(169, 30)
 Style-Button $btnLoadPermissions
 $btnLoadPermissions.Add_Click({ Load-Permissions })
-$tabConfig.Controls.Add($btnLoadPermissions)
+$grpPermissions.Controls.Add($btnLoadPermissions)
+$toolTip.SetToolTip($btnLoadPermissions, "Load the current permissions.json file into the editor")
 
 $btnSavePermissions = New-Object System.Windows.Forms.Button
 $btnSavePermissions.Text = "Save Permissions"
-$btnSavePermissions.Location = New-Object System.Drawing.Point(790, 140)  # 40px below Save Config
-$btnSavePermissions.Size = New-Object System.Drawing.Size(180, 30)
+$btnSavePermissions.Location = New-Object System.Drawing.Point(8, 62)
+$btnSavePermissions.Size = New-Object System.Drawing.Size(169, 30)
 Style-Button $btnSavePermissions
 $btnSavePermissions.Add_Click({ Save-Permissions })
-$tabConfig.Controls.Add($btnSavePermissions)
+$grpPermissions.Controls.Add($btnSavePermissions)
+$toolTip.SetToolTip($btnSavePermissions, "Save changes from the editor back to permissions.json")
+
+$btnOpenPermissions = New-Object System.Windows.Forms.Button
+$btnOpenPermissions.Text = "Open Permissions File"
+$btnOpenPermissions.Location = New-Object System.Drawing.Point(8, 99)
+$btnOpenPermissions.Size = New-Object System.Drawing.Size(169, 30)
+Style-Button $btnOpenPermissions
+$btnOpenPermissions.Add_Click({ Open-PermissionsFile })
+$grpPermissions.Controls.Add($btnOpenPermissions)
+$toolTip.SetToolTip($btnOpenPermissions, "Open permissions.json in your default text editor")
 
 # =====================
 # THEME SWITCHER SECTION
 # =====================
 
-$lblThemeTitle = New-Object System.Windows.Forms.Label
-$lblThemeTitle.Text = "Theme Selector:"
-$lblThemeTitle.Location = New-Object System.Drawing.Point(790, 200)
-$lblThemeTitle.Size = New-Object System.Drawing.Size(180, 20)
-$lblThemeTitle.ForeColor = $colorText
-$lblThemeTitle.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$tabConfig.Controls.Add($lblThemeTitle)
+$grpTheme = New-Object System.Windows.Forms.GroupBox
+$grpTheme.Text = "Theme Selector"
+$grpTheme.Location = New-Object System.Drawing.Point(790, 330)
+$grpTheme.Size = New-Object System.Drawing.Size(185, 165)
+$grpTheme.ForeColor = $colorText
+$tabConfig.Controls.Add($grpTheme)
+
+$lblThemeLabel = New-Object System.Windows.Forms.Label
+$lblThemeLabel.Text = "Choose Theme:"
+$lblThemeLabel.Location = New-Object System.Drawing.Point(8, 20)
+$lblThemeLabel.Size = New-Object System.Drawing.Size(169, 16)
+$lblThemeLabel.ForeColor = $colorText
+$lblThemeLabel.Font = New-Object System.Drawing.Font("Arial", 9)
+$grpTheme.Controls.Add($lblThemeLabel)
 
 $cmbTheme = New-Object System.Windows.Forms.ComboBox
-$cmbTheme.Location = New-Object System.Drawing.Point(790, 225)
-$cmbTheme.Size = New-Object System.Drawing.Size(180, 25)
+$cmbTheme.Location = New-Object System.Drawing.Point(8, 40)
+$cmbTheme.Size = New-Object System.Drawing.Size(169, 25)
 $cmbTheme.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
 $cmbTheme.BackColor = $colorTextboxBack
 $cmbTheme.ForeColor = $colorTextboxText
 $cmbTheme.Items.AddRange(@("Dark", "Light", "Blue", "Purple"))
 $cmbTheme.SelectedItem = "Dark"
-$tabConfig.Controls.Add($cmbTheme)
+$grpTheme.Controls.Add($cmbTheme)
+$toolTip.SetToolTip($cmbTheme, "Select from available color themes")
 
 $btnApplyTheme = New-Object System.Windows.Forms.Button
 $btnApplyTheme.Text = "Apply Theme"
-$btnApplyTheme.Location = New-Object System.Drawing.Point(790, 260)
-$btnApplyTheme.Size = New-Object System.Drawing.Size(180, 35)
+$btnApplyTheme.Location = New-Object System.Drawing.Point(8, 72)
+$btnApplyTheme.Size = New-Object System.Drawing.Size(169, 35)
 $btnApplyTheme.BackColor = [System.Drawing.Color]::FromArgb(100, 50, 150)
 $btnApplyTheme.ForeColor = [System.Drawing.Color]::White
 $btnApplyTheme.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
@@ -4990,21 +5337,17 @@ $btnApplyTheme.Add_Click({
         Apply-Theme $selectedTheme
     }
 })
-$tabConfig.Controls.Add($btnApplyTheme)
+$grpTheme.Controls.Add($btnApplyTheme)
+$toolTip.SetToolTip($btnApplyTheme, "Apply the selected theme to the entire application")
 
-$lblThemePreview = New-Object System.Windows.Forms.Label
-$lblThemePreview.Text = @"
-Themes Available:
-- Dark (Default)
-- Light (Bright)
-- Blue (Cool)
-- Purple (Stylish)
-"@
-$lblThemePreview.Location = New-Object System.Drawing.Point(790, 305)
-$lblThemePreview.Size = New-Object System.Drawing.Size(180, 80)
-$lblThemePreview.ForeColor = [System.Drawing.Color]::LightGray
-$lblThemePreview.Font = New-Object System.Drawing.Font("Arial", 8)
-$tabConfig.Controls.Add($lblThemePreview)
+$lblThemeInfo = New-Object System.Windows.Forms.Label
+$lblThemeInfo.Text = "Available: Dark, Light, Blue, Purple"
+$lblThemeInfo.Location = New-Object System.Drawing.Point(8, 115)
+$lblThemeInfo.Size = New-Object System.Drawing.Size(169, 40)
+$lblThemeInfo.ForeColor = [System.Drawing.Color]::LightGray
+$lblThemeInfo.Font = New-Object System.Drawing.Font("Arial", 8)
+$lblThemeInfo.AutoSize = $false
+$grpTheme.Controls.Add($lblThemeInfo)
 
 # =====================
 # SERVER MAINTENANCE TAB (MERGED)
@@ -5298,7 +5641,7 @@ $lblOverallStatus.ForeColor = [System.Drawing.Color]::Orange
 $tabMaintenance.Controls.Add($lblOverallStatus)
 
 # =====================
-# MOD MANAGER TAB
+# MOD MANAGER TAB (REORGANIZED FOR 720P - 2 COLUMN LAYOUT)
 # =====================
 
 $tabModManager = New-Object System.Windows.Forms.TabPage
@@ -5306,23 +5649,6 @@ $tabModManager.Text = "Mod Manager"
 $tabModManager.BackColor = $colorBack
 $tabs.TabPages.Add($tabModManager)
 
-# Title Label
-$lblModManagerTitle = New-Object System.Windows.Forms.Label
-$lblModManagerTitle.Text = "HYTALE MOD MANAGER"
-$lblModManagerTitle.Location = New-Object System.Drawing.Point(10, 10)
-$lblModManagerTitle.Size = New-Object System.Drawing.Size(500, 30)
-$lblModManagerTitle.ForeColor = $colorText
-$lblModManagerTitle.Font = New-Object System.Drawing.Font("Arial", 14, [System.Drawing.FontStyle]::Bold)
-$tabModManager.Controls.Add($lblModManagerTitle)
-
-# Subtitle
-$lblModManagerSubtitle = New-Object System.Windows.Forms.Label
-$lblModManagerSubtitle.Text = "Drag .jar files into the list or use the buttons to manage mods"
-$lblModManagerSubtitle.Location = New-Object System.Drawing.Point(10, 45)
-$lblModManagerSubtitle.Size = New-Object System.Drawing.Size(600, 20)
-$lblModManagerSubtitle.ForeColor = [System.Drawing.Color]::LightGray
-$lblModManagerSubtitle.Font = New-Object System.Drawing.Font("Arial", 9)
-$tabModManager.Controls.Add($lblModManagerSubtitle)
 
 # =====================
 # INSTALLED MODS LIST (ListView)
@@ -5354,124 +5680,157 @@ $script:modListView.Columns.Add("File Path", 200) | Out-Null
 $tabModManager.Controls.Add($script:modListView)
 
 # =====================
-# CONTROL BUTTONS (Right Panel)
+# LEFT COLUMN BUTTONS (X=770, Width=95)
 # =====================
 
 $btnRefreshMods = New-Object System.Windows.Forms.Button
-$btnRefreshMods.Text = "Refresh List"
+$btnRefreshMods.Text = "Refresh"
 $btnRefreshMods.Location = New-Object System.Drawing.Point(770, 75)
-$btnRefreshMods.Size = New-Object System.Drawing.Size(200, 40)
+$btnRefreshMods.Size = New-Object System.Drawing.Size(95, 35)
 Style-Button $btnRefreshMods
 $btnRefreshMods.Add_Click({ Refresh-ModList })
 $tabModManager.Controls.Add($btnRefreshMods)
+$toolTip.SetToolTip($btnRefreshMods, "Refresh the mod list")
 
 $btnToggleMod = New-Object System.Windows.Forms.Button
-$btnToggleMod.Text = "Enable / Disable Mod"
-$btnToggleMod.Location = New-Object System.Drawing.Point(770, 125)
-$btnToggleMod.Size = New-Object System.Drawing.Size(200, 40)
+$btnToggleMod.Text = "Toggle Mod"
+$btnToggleMod.Location = New-Object System.Drawing.Point(770, 115)
+$btnToggleMod.Size = New-Object System.Drawing.Size(95, 35)
 Style-Button $btnToggleMod
 $btnToggleMod.Add_Click({ Toggle-ModState })
 $tabModManager.Controls.Add($btnToggleMod)
+$toolTip.SetToolTip($btnToggleMod, "Enable or disable selected mod")
 
 $btnOpenModsFolder = New-Object System.Windows.Forms.Button
-$btnOpenModsFolder.Text = "Open Mods Folder"
-$btnOpenModsFolder.Location = New-Object System.Drawing.Point(770, 175)
-$btnOpenModsFolder.Size = New-Object System.Drawing.Size(200, 40)
+$btnOpenModsFolder.Text = "Mod Folder"
+$btnOpenModsFolder.Location = New-Object System.Drawing.Point(770, 155)
+$btnOpenModsFolder.Size = New-Object System.Drawing.Size(95, 35)
 Style-Button $btnOpenModsFolder
 $btnOpenModsFolder.Add_Click({ Open-ModsFolder })
 $tabModManager.Controls.Add($btnOpenModsFolder)
+$toolTip.SetToolTip($btnOpenModsFolder, "Open mods folder in explorer")
 
 $btnRemoveMod = New-Object System.Windows.Forms.Button
-$btnRemoveMod.Text = "Delete Mod (Permanent)"
-$btnRemoveMod.Location = New-Object System.Drawing.Point(770, 225)
-$btnRemoveMod.Size = New-Object System.Drawing.Size(200, 40)
+$btnRemoveMod.Text = "Delete Mod"
+$btnRemoveMod.Location = New-Object System.Drawing.Point(770, 195)
+$btnRemoveMod.Size = New-Object System.Drawing.Size(95, 35)
 $btnRemoveMod.BackColor = [System.Drawing.Color]::FromArgb(120, 40, 40)
 $btnRemoveMod.ForeColor = $colorButtonText
 $btnRemoveMod.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnRemoveMod.Add_Click({ Remove-SelectedMod })
 $tabModManager.Controls.Add($btnRemoveMod)
+$toolTip.SetToolTip($btnRemoveMod, "Permanently delete selected mod")
 
 $btnCheckConflicts = New-Object System.Windows.Forms.Button
-$btnCheckConflicts.Text = "Check for Conflicts"
-$btnCheckConflicts.Location = New-Object System.Drawing.Point(770, 275)
-$btnCheckConflicts.Size = New-Object System.Drawing.Size(200, 35)
+$btnCheckConflicts.Text = "Check Conflicts"
+$btnCheckConflicts.Location = New-Object System.Drawing.Point(770, 235)
+$btnCheckConflicts.Size = New-Object System.Drawing.Size(95, 35)
 $btnCheckConflicts.BackColor = [System.Drawing.Color]::FromArgb(100, 100, 40)
 $btnCheckConflicts.ForeColor = $colorButtonText
 $btnCheckConflicts.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnCheckConflicts.Add_Click({ Check-ModConflicts })
 $tabModManager.Controls.Add($btnCheckConflicts)
+$toolTip.SetToolTip($btnCheckConflicts, "Check for mod conflicts")
 
-# Separator
-$lblSeparator = New-Object System.Windows.Forms.Label
-$lblSeparator.Text = "----------------------------------------"
-$lblSeparator.Location = New-Object System.Drawing.Point(770, 315)
-$lblSeparator.Size = New-Object System.Drawing.Size(200, 20)
-$lblSeparator.ForeColor = [System.Drawing.Color]::Gray
-$tabModManager.Controls.Add($lblSeparator)
+# Mod Config Buttons
+$btnBrowseModConfigs = New-Object System.Windows.Forms.Button
+$btnBrowseModConfigs.Text = "Browse Configs"
+$btnBrowseModConfigs.Location = New-Object System.Drawing.Point(770, 280)
+$btnBrowseModConfigs.Size = New-Object System.Drawing.Size(95, 35)
+$btnBrowseModConfigs.BackColor = [System.Drawing.Color]::FromArgb(50, 100, 150)
+$btnBrowseModConfigs.ForeColor = [System.Drawing.Color]::White
+$btnBrowseModConfigs.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnBrowseModConfigs.Add_Click({ Show-ModConfigPicker })
+$tabModManager.Controls.Add($btnBrowseModConfigs)
+$toolTip.SetToolTip($btnBrowseModConfigs, "Browse mod config folders")
+
+$btnOpenSelectedModConfig = New-Object System.Windows.Forms.Button
+$btnOpenSelectedModConfig.Text = "Open Selected"
+$btnOpenSelectedModConfig.Location = New-Object System.Drawing.Point(770, 320)
+$btnOpenSelectedModConfig.Size = New-Object System.Drawing.Size(95, 35)
+Style-Button $btnOpenSelectedModConfig
+$btnOpenSelectedModConfig.Add_Click({
+    if ($script:modListView.SelectedItems.Count -gt 0) {
+        $selectedModName = $script:modListView.SelectedItems[0].SubItems[0].Text
+        # Remove .jar extension if present
+        $modName = $selectedModName -replace '\.jar$', ''
+        Open-ModConfigFolder $modName
+    } else {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Please select a mod from the list first.",
+            "No Selection",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+    }
+})
+$tabModManager.Controls.Add($btnOpenSelectedModConfig)
+$toolTip.SetToolTip($btnOpenSelectedModConfig, "Open selected mod's config")
 
 # =====================
-# CURSEFORGE INTEGRATION SECTION
+# RIGHT COLUMN BUTTONS (X=875, Width=95)
 # =====================
 
-$lblCurseForgeSection = New-Object System.Windows.Forms.Label
-$lblCurseForgeSection.Text = "CurseForge Integration"
-$lblCurseForgeSection.Location = New-Object System.Drawing.Point(770, 340)
-$lblCurseForgeSection.Size = New-Object System.Drawing.Size(200, 20)
-$lblCurseForgeSection.ForeColor = $colorText
-$lblCurseForgeSection.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$tabModManager.Controls.Add($lblCurseForgeSection)
-
-# Link to CurseForge button
+# CurseForge Buttons
 $btnLinkToCurseForge = New-Object System.Windows.Forms.Button
-$btnLinkToCurseForge.Text = "Link to CurseForge"
-$btnLinkToCurseForge.Location = New-Object System.Drawing.Point(770, 365)
-$btnLinkToCurseForge.Size = New-Object System.Drawing.Size(200, 30)
+$btnLinkToCurseForge.Text = "Link Mod CF"
+$btnLinkToCurseForge.Location = New-Object System.Drawing.Point(875, 75)
+$btnLinkToCurseForge.Size = New-Object System.Drawing.Size(95, 35)
 $btnLinkToCurseForge.BackColor = [System.Drawing.Color]::FromArgb(100, 65, 165)
 $btnLinkToCurseForge.ForeColor = $colorButtonText
 $btnLinkToCurseForge.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnLinkToCurseForge.Add_Click({ Show-CurseForgeLinkDialog })
 $tabModManager.Controls.Add($btnLinkToCurseForge)
+$toolTip.SetToolTip($btnLinkToCurseForge, "Link mod to CurseForge")
 
-# Check for Updates button
 $btnCheckUpdates = New-Object System.Windows.Forms.Button
-$btnCheckUpdates.Text = "Check for Updates"
-$btnCheckUpdates.Location = New-Object System.Drawing.Point(770, 400)
-$btnCheckUpdates.Size = New-Object System.Drawing.Size(200, 30)
+$btnCheckUpdates.Text = "Check Updates"
+$btnCheckUpdates.Location = New-Object System.Drawing.Point(875, 115)
+$btnCheckUpdates.Size = New-Object System.Drawing.Size(95, 35)
 $btnCheckUpdates.BackColor = [System.Drawing.Color]::FromArgb(64, 96, 224)
 $btnCheckUpdates.ForeColor = $colorButtonText
 $btnCheckUpdates.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnCheckUpdates.Add_Click({ Check-AllModUpdates })
 $tabModManager.Controls.Add($btnCheckUpdates)
+$toolTip.SetToolTip($btnCheckUpdates, "Check for mod updates")
 
-# Update Selected Mod button
 $btnUpdateMod = New-Object System.Windows.Forms.Button
-$btnUpdateMod.Text = "Update Selected Mod"
-$btnUpdateMod.Location = New-Object System.Drawing.Point(770, 435)
-$btnUpdateMod.Size = New-Object System.Drawing.Size(200, 30)
+$btnUpdateMod.Text = "Update Mod"
+$btnUpdateMod.Location = New-Object System.Drawing.Point(875, 155)
+$btnUpdateMod.Size = New-Object System.Drawing.Size(95, 35)
 $btnUpdateMod.BackColor = [System.Drawing.Color]::FromArgb(255, 140, 0)
 $btnUpdateMod.ForeColor = $colorButtonText
 $btnUpdateMod.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnUpdateMod.Add_Click({ Update-SelectedMod })
 $tabModManager.Controls.Add($btnUpdateMod)
+$toolTip.SetToolTip($btnUpdateMod, "Update selected mod")
 
-# Browse CurseForge Website button
 $btnCurseForge = New-Object System.Windows.Forms.Button
-$btnCurseForge.Text = "Browse CurseForge"
-$btnCurseForge.Location = New-Object System.Drawing.Point(770, 470)
-$btnCurseForge.Size = New-Object System.Drawing.Size(200, 30)
+$btnCurseForge.Text = "Get More Mods"
+$btnCurseForge.Location = New-Object System.Drawing.Point(875, 195)
+$btnCurseForge.Size = New-Object System.Drawing.Size(95, 35)
 $btnCurseForge.BackColor = [System.Drawing.Color]::FromArgb(240, 100, 20)
 $btnCurseForge.ForeColor = [System.Drawing.Color]::White
 $btnCurseForge.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnCurseForge.Add_Click({ Open-CurseForge })
 $tabModManager.Controls.Add($btnCurseForge)
+$toolTip.SetToolTip($btnCurseForge, "Browse CurseForge website")
+
+# Separator
+$lblSeparator = New-Object System.Windows.Forms.Label
+$lblSeparator.Text = "---"
+$lblSeparator.Location = New-Object System.Drawing.Point(770, 360)
+$lblSeparator.Size = New-Object System.Drawing.Size(200, 15)
+$lblSeparator.ForeColor = [System.Drawing.Color]::Gray
+$tabModManager.Controls.Add($lblSeparator)
 
 # =====================
-# MOD NOTES SECTION
+# MOD NOTES SECTION (Bottom)
 # =====================
 
 $lblNotesTitle = New-Object System.Windows.Forms.Label
 $lblNotesTitle.Text = "Mod Notes / Description:"
-$lblNotesTitle.Location = New-Object System.Drawing.Point(770, 510)
+$lblNotesTitle.Location = New-Object System.Drawing.Point(770, 380)
 $lblNotesTitle.Size = New-Object System.Drawing.Size(200, 20)
 $lblNotesTitle.ForeColor = $colorText
 $lblNotesTitle.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
@@ -5480,8 +5839,8 @@ $tabModManager.Controls.Add($lblNotesTitle)
 $script:txtModNotes = New-Object System.Windows.Forms.TextBox
 $script:txtModNotes.Multiline = $true
 $script:txtModNotes.ScrollBars = "Vertical"
-$script:txtModNotes.Location = New-Object System.Drawing.Point(770, 535)
-$script:txtModNotes.Size = New-Object System.Drawing.Size(200, 60)
+$script:txtModNotes.Location = New-Object System.Drawing.Point(770, 405)
+$script:txtModNotes.Size = New-Object System.Drawing.Size(200, 120)
 $script:txtModNotes.BackColor = $colorTextboxBack
 $script:txtModNotes.ForeColor = $colorTextboxText
 $script:txtModNotes.Font = New-Object System.Drawing.Font("Consolas", 8)
@@ -5491,11 +5850,12 @@ $tabModManager.Controls.Add($script:txtModNotes)
 
 $btnSaveNotes = New-Object System.Windows.Forms.Button
 $btnSaveNotes.Text = "Save Notes"
-$btnSaveNotes.Location = New-Object System.Drawing.Point(770, 600)
+$btnSaveNotes.Location = New-Object System.Drawing.Point(770, 530)
 $btnSaveNotes.Size = New-Object System.Drawing.Size(200, 25)
 Style-Button $btnSaveNotes
 $btnSaveNotes.Add_Click({ Update-ModNotes })
 $tabModManager.Controls.Add($btnSaveNotes)
+$toolTip.SetToolTip($btnSaveNotes, "Save notes for the selected mod")
 
 # Add event to show notes when mod is selected
 $script:modListView.Add_SelectedIndexChanged({ Show-ModNotes })
@@ -5505,7 +5865,7 @@ $script:modListView.Add_SelectedIndexChanged({ Show-ModNotes })
 # =====================
 
 $lblQuickTips = New-Object System.Windows.Forms.Label
-$lblQuickTips.Text = "TIP: Drag .jar files directly into the list! | GREEN=Enabled | RED=Disabled | YELLOW=Conflict | ORANGE=Update Available"
+$lblQuickTips.Text = "TIP: Drag .jar files into list | GREEN=Enabled | RED=Disabled | YELLOW=Conflict | ORANGE=Update"
 $lblQuickTips.Location = New-Object System.Drawing.Point(10, 605)
 $lblQuickTips.Size = New-Object System.Drawing.Size(750, 20)
 $lblQuickTips.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 150)
