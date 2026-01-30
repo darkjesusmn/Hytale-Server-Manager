@@ -5020,6 +5020,7 @@ if (-not (Get-Variable -Name hytaleCommands -Scope Script -ErrorAction SilentlyC
         "/maxviewradius"       = "Set max player view distance."
         "/backup list"         = "List available backups."
         "/backup restore"      = "Restore a backup."
+        "/say"                 = "Broadcast to all players."
 
         # =====================
         # PLAYER / ADMIN
@@ -5350,7 +5351,7 @@ $lblThemeInfo.AutoSize = $false
 $grpTheme.Controls.Add($lblThemeInfo)
 
 # =====================
-# SERVER MAINTENANCE TAB (MERGED)
+# SERVER MAINTENANCE TAB (REORGANIZED LAYOUT)
 # =====================
 
 $tabMaintenance = New-Object System.Windows.Forms.TabPage
@@ -5359,82 +5360,120 @@ $tabMaintenance.BackColor = $colorBack
 $tabs.TabPages.Add($tabMaintenance)
 
 # =====================
-# UPDATE SECTION
+# GROUP 1: SERVER UPDATE SECTION (TOP LEFT)
 # =====================
 
+$groupUpdate = New-Object System.Windows.Forms.GroupBox
+$groupUpdate.Text = "Server Update"
+$groupUpdate.Location = New-Object System.Drawing.Point(10, 10)
+$groupUpdate.Size = New-Object System.Drawing.Size(470, 150)
+$groupUpdate.ForeColor = $colorText
+$tabMaintenance.Controls.Add($groupUpdate)
+
 $lblUpdateInfo = New-Object System.Windows.Forms.Label
-$lblUpdateInfo.Text = "Download and install the latest Hytale server files using the official downloader."
+$lblUpdateInfo.Text = "Download and install the latest Hytale server files"
 $lblUpdateInfo.Location = New-Object System.Drawing.Point(10, 20)
-$lblUpdateInfo.Size = New-Object System.Drawing.Size(940, 20)
+$lblUpdateInfo.Size = New-Object System.Drawing.Size(450, 20)
 $lblUpdateInfo.ForeColor = $colorText
-$tabMaintenance.Controls.Add($lblUpdateInfo)
+$groupUpdate.Controls.Add($lblUpdateInfo)
 
 $lblDownloaderPath = New-Object System.Windows.Forms.Label
 $lblDownloaderPath.Text = "Downloader:"
 $lblDownloaderPath.Location = New-Object System.Drawing.Point(10, 50)
 $lblDownloaderPath.Size = New-Object System.Drawing.Size(80, 20)
 $lblDownloaderPath.ForeColor = $colorText
-$tabMaintenance.Controls.Add($lblDownloaderPath)
+$groupUpdate.Controls.Add($lblDownloaderPath)
 
 $txtDownloaderPath = New-Object System.Windows.Forms.TextBox
 $txtDownloaderPath.Location = New-Object System.Drawing.Point(100, 48)
-$txtDownloaderPath.Size = New-Object System.Drawing.Size(620, 20)
+$txtDownloaderPath.Size = New-Object System.Drawing.Size(340, 20)
 $txtDownloaderPath.ReadOnly = $true
 $txtDownloaderPath.BackColor = $colorTextboxBack
 $txtDownloaderPath.ForeColor = $colorTextboxText
 $txtDownloaderPath.Text = $script:downloaderPath
-$tabMaintenance.Controls.Add($txtDownloaderPath)
+$groupUpdate.Controls.Add($txtDownloaderPath)
 
 $btnUpdateServer = New-Object System.Windows.Forms.Button
 $btnUpdateServer.Text = "Update Server"
-$btnUpdateServer.Location = New-Object System.Drawing.Point(100, 80)
-$btnUpdateServer.Size = New-Object System.Drawing.Size(150, 35)
+$btnUpdateServer.Location = New-Object System.Drawing.Point(10, 80)
+$btnUpdateServer.Size = New-Object System.Drawing.Size(140, 30)
 $btnUpdateServer.BackColor = [System.Drawing.Color]::FromArgb(70, 130, 180)
 $btnUpdateServer.ForeColor = $colorText
 $btnUpdateServer.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
 $btnUpdateServer.Add_Click({ Update-Server })
-$tabMaintenance.Controls.Add($btnUpdateServer)
+$groupUpdate.Controls.Add($btnUpdateServer)
 
 $chkAutoRestart = New-Object System.Windows.Forms.CheckBox
-$chkAutoRestart.Text = "Auto-restart server after update"
-$chkAutoRestart.Location = New-Object System.Drawing.Point(270, 85)
-$chkAutoRestart.Size = New-Object System.Drawing.Size(250, 25)
+$chkAutoRestart.Text = "Auto-restart after update"
+$chkAutoRestart.Location = New-Object System.Drawing.Point(160, 85)
+$chkAutoRestart.Size = New-Object System.Drawing.Size(190, 20)
 $chkAutoRestart.ForeColor = $colorText
 $chkAutoRestart.Checked = $true
-$tabMaintenance.Controls.Add($chkAutoRestart)
+$groupUpdate.Controls.Add($chkAutoRestart)
 
 $lblUpdateWarning = New-Object System.Windows.Forms.Label
-$lblUpdateWarning.Text = "[!] Server will be stopped during update"
-$lblUpdateWarning.Location = New-Object System.Drawing.Point(530, 88)
-$lblUpdateWarning.Size = New-Object System.Drawing.Size(250, 20)
+$lblUpdateWarning.Text = "[!] Server will stop during update"
+$lblUpdateWarning.Location = New-Object System.Drawing.Point(10, 115)
+$lblUpdateWarning.Size = New-Object System.Drawing.Size(450, 20)
 $lblUpdateWarning.ForeColor = [System.Drawing.Color]::Orange
 $lblUpdateWarning.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$tabMaintenance.Controls.Add($lblUpdateWarning)
+$groupUpdate.Controls.Add($lblUpdateWarning)
 
-# Restore Backup Button
+# =====================
+# GROUP 2: SERVER INFO SECTION (TOP RIGHT)
+# =====================
+
+$groupServerInfo = New-Object System.Windows.Forms.GroupBox
+$groupServerInfo.Text = "Server Information"
+$groupServerInfo.Location = New-Object System.Drawing.Point(490, 10)
+$groupServerInfo.Size = New-Object System.Drawing.Size(470, 150)
+$groupServerInfo.ForeColor = $colorText
+$tabMaintenance.Controls.Add($groupServerInfo)
+
+$lblServerIPTitle = New-Object System.Windows.Forms.Label
+$lblServerIPTitle.Text = "Server IP Address:"
+$lblServerIPTitle.Location = New-Object System.Drawing.Point(10, 25)
+$lblServerIPTitle.Size = New-Object System.Drawing.Size(150, 20)
+$lblServerIPTitle.ForeColor = $colorText
+$lblServerIPTitle.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$groupServerInfo.Controls.Add($lblServerIPTitle)
+
+$btnCopyServerIP = New-Object System.Windows.Forms.Button
+$btnCopyServerIP.Text = "Copy Server IP"
+$btnCopyServerIP.Location = New-Object System.Drawing.Point(10, 50)
+$btnCopyServerIP.Size = New-Object System.Drawing.Size(450, 35)
+$btnCopyServerIP.BackColor = [System.Drawing.Color]::FromArgb(50, 150, 50)
+$btnCopyServerIP.ForeColor = [System.Drawing.Color]::White
+$btnCopyServerIP.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$btnCopyServerIP.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnCopyServerIP.Add_Click({ Copy-ServerIP })
+$groupServerInfo.Controls.Add($btnCopyServerIP)
+
 $btnRestoreBackup = New-Object System.Windows.Forms.Button
 $btnRestoreBackup.Text = "Restore from Backup"
-$btnRestoreBackup.Location = New-Object System.Drawing.Point(610, 130)
-$btnRestoreBackup.Size = New-Object System.Drawing.Size(140, 28)
-$btnRestoreBackup.BackColor = [System.Drawing.Color]::FromArgb(180, 70, 70)  # Reddish to indicate caution
+$btnRestoreBackup.Location = New-Object System.Drawing.Point(10, 100)
+$btnRestoreBackup.Size = New-Object System.Drawing.Size(450, 35)
+$btnRestoreBackup.BackColor = [System.Drawing.Color]::FromArgb(180, 70, 70)
 $btnRestoreBackup.ForeColor = $colorText
 $btnRestoreBackup.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
 $btnRestoreBackup.Add_Click({ Restore-ServerBackup })
-$tabMaintenance.Controls.Add($btnRestoreBackup)
+$groupServerInfo.Controls.Add($btnRestoreBackup)
 
-# Downloader utility buttons
-$lblDownloaderUtils = New-Object System.Windows.Forms.Label
-$lblDownloaderUtils.Text = "Downloader Utilities:"
-$lblDownloaderUtils.Location = New-Object System.Drawing.Point(10, 135)
-$lblDownloaderUtils.Size = New-Object System.Drawing.Size(150, 20)
-$lblDownloaderUtils.ForeColor = $colorText
-$lblDownloaderUtils.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$tabMaintenance.Controls.Add($lblDownloaderUtils)
+# =====================
+# GROUP 3: DOWNLOADER UTILITIES SECTION (FULL WIDTH)
+# =====================
+
+$groupDownloaderUtils = New-Object System.Windows.Forms.GroupBox
+$groupDownloaderUtils.Text = "Downloader Utilities"
+$groupDownloaderUtils.Location = New-Object System.Drawing.Point(10, 170)
+$groupDownloaderUtils.Size = New-Object System.Drawing.Size(950, 60)
+$groupDownloaderUtils.ForeColor = $colorText
+$tabMaintenance.Controls.Add($groupDownloaderUtils)
 
 $btnPrintVersion = New-Object System.Windows.Forms.Button
-$btnPrintVersion.Text = "Check for Server Update"
-$btnPrintVersion.Location = New-Object System.Drawing.Point(160, 130)
-$btnPrintVersion.Size = New-Object System.Drawing.Size(140, 28)
+$btnPrintVersion.Text = "Check for Update"
+$btnPrintVersion.Location = New-Object System.Drawing.Point(10, 20)
+$btnPrintVersion.Size = New-Object System.Drawing.Size(150, 25)
 $btnPrintVersion.BackColor = $colorButtonBack
 $btnPrintVersion.ForeColor = $colorText
 $btnPrintVersion.Add_Click({
@@ -5461,63 +5500,146 @@ $btnPrintVersion.Add_Click({
         [System.Windows.Forms.MessageBox]::Show("No update available.`n`nVersion: $exeVersion", "Up To Date",[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Information)
     }
 })
-$tabMaintenance.Controls.Add($btnPrintVersion)
+$groupDownloaderUtils.Controls.Add($btnPrintVersion)
 
 $btnDownloaderVersion = New-Object System.Windows.Forms.Button
 $btnDownloaderVersion.Text = "Downloader Version"
-$btnDownloaderVersion.Location = New-Object System.Drawing.Point(310, 130)
-$btnDownloaderVersion.Size = New-Object System.Drawing.Size(140, 28)
+$btnDownloaderVersion.Location = New-Object System.Drawing.Point(170, 20)
+$btnDownloaderVersion.Size = New-Object System.Drawing.Size(150, 25)
 $btnDownloaderVersion.BackColor = $colorButtonBack
 $btnDownloaderVersion.ForeColor = $colorText
 $btnDownloaderVersion.Add_Click({ Run-DownloaderCommand "-version" "Checking downloader version" })
-$tabMaintenance.Controls.Add($btnDownloaderVersion)
+$groupDownloaderUtils.Controls.Add($btnDownloaderVersion)
 
 $btnCheckUpdate = New-Object System.Windows.Forms.Button
-$btnCheckUpdate.Text = "Check for Downloader Update"
-$btnCheckUpdate.Location = New-Object System.Drawing.Point(460, 130)
-$btnCheckUpdate.Size = New-Object System.Drawing.Size(140, 28)
+$btnCheckUpdate.Text = "Check Downloader Update"
+$btnCheckUpdate.Location = New-Object System.Drawing.Point(330, 20)
+$btnCheckUpdate.Size = New-Object System.Drawing.Size(150, 25)
 $btnCheckUpdate.BackColor = $colorButtonBack
 $btnCheckUpdate.ForeColor = $colorText
 $btnCheckUpdate.Add_Click({ Run-DownloaderCommand "-check-update" "Checking for downloader updates" })
-$tabMaintenance.Controls.Add($btnCheckUpdate)
+$groupDownloaderUtils.Controls.Add($btnCheckUpdate)
 
-# UPDATE DOWNLOADER BUTTON
 $btnUpdateDownloader = New-Object System.Windows.Forms.Button
 $btnUpdateDownloader.Text = "Update Downloader"
-$btnUpdateDownloader.Location = New-Object System.Drawing.Point(850, 130)  # Adjust position as needed
-$btnUpdateDownloader.Size = New-Object System.Drawing.Size(180, 30)
-$btnUpdateDownloader.BackColor = [System.Drawing.Color]::FromArgb(70, 130, 180)  # Blue color
+$btnUpdateDownloader.Location = New-Object System.Drawing.Point(490, 20)
+$btnUpdateDownloader.Size = New-Object System.Drawing.Size(150, 25)
+$btnUpdateDownloader.BackColor = [System.Drawing.Color]::FromArgb(70, 130, 180)
 $btnUpdateDownloader.ForeColor = [System.Drawing.Color]::White
 $btnUpdateDownloader.Add_Click({ Download-LatestDownloader })
-$tabMaintenance.Controls.Add($btnUpdateDownloader)
+$groupDownloaderUtils.Controls.Add($btnUpdateDownloader)
 
-# Add tooltip
+$btnCheckFiles = New-Object System.Windows.Forms.Button
+$btnCheckFiles.Text = "Check Files"
+$btnCheckFiles.Location = New-Object System.Drawing.Point(650, 20)
+$btnCheckFiles.Size = New-Object System.Drawing.Size(150, 25)
+Style-Button $btnCheckFiles
+$btnCheckFiles.Add_Click({ Check-ServerFiles })
+$groupDownloaderUtils.Controls.Add($btnCheckFiles)
+
 $toolTip.SetToolTip($btnUpdateDownloader, "Download the latest version of the Hytale downloader tool")
 
-# Clear / Save / Copy Update Log buttons
-$btnClearUpdateLog = New-Object System.Windows.Forms.Button
-$btnClearUpdateLog.Text = "Clear Update Log"
-$btnClearUpdateLog.Location = New-Object System.Drawing.Point(10, 630)
-$btnClearUpdateLog.Size = New-Object System.Drawing.Size(120, 25)
-Style-Button $btnClearUpdateLog
-$btnClearUpdateLog.Add_Click({ Clear-UpdateLog })
-$tabMaintenance.Controls.Add($btnClearUpdateLog)
+# =====================
+# GROUP 4: FILE STATUS SECTION (FULL WIDTH)
+# =====================
 
-$btnSaveUpdateLog = New-Object System.Windows.Forms.Button
-$btnSaveUpdateLog.Text = "Save Update Log"
-$btnSaveUpdateLog.Location = New-Object System.Drawing.Point(140, 630)
-$btnSaveUpdateLog.Size = New-Object System.Drawing.Size(120, 25)
-Style-Button $btnSaveUpdateLog
-$btnSaveUpdateLog.Add_Click({ Save-UpdateLogToFile })
-$tabMaintenance.Controls.Add($btnSaveUpdateLog)
+$groupFileStatus = New-Object System.Windows.Forms.GroupBox
+$groupFileStatus.Text = "Required Files Status"
+$groupFileStatus.Location = New-Object System.Drawing.Point(10, 240)
+$groupFileStatus.Size = New-Object System.Drawing.Size(950, 120)
+$groupFileStatus.ForeColor = $colorText
+$tabMaintenance.Controls.Add($groupFileStatus)
 
-$btnCopyUpdateLog = New-Object System.Windows.Forms.Button
-$btnCopyUpdateLog.Text = "Copy Update Log"
-$btnCopyUpdateLog.Location = New-Object System.Drawing.Point(270, 630)
-$btnCopyUpdateLog.Size = New-Object System.Drawing.Size(120, 25)
-Style-Button $btnCopyUpdateLog
-$btnCopyUpdateLog.Add_Click({ Copy-UpdateLogToClipboard })
-$tabMaintenance.Controls.Add($btnCopyUpdateLog)
+# Row 1: HytaleServer.jar and Assets.zip
+$lblJarFile = New-Object System.Windows.Forms.Label
+$lblJarFile.Text = "HytaleServer.jar"
+$lblJarFile.Location = New-Object System.Drawing.Point(10, 25)
+$lblJarFile.Size = New-Object System.Drawing.Size(200, 20)
+$lblJarFile.ForeColor = [System.Drawing.Color]::Red
+$groupFileStatus.Controls.Add($lblJarFile)
+
+$lblJarStatus = New-Object System.Windows.Forms.Label
+$lblJarStatus.Text = "[MISSING]"
+$lblJarStatus.Location = New-Object System.Drawing.Point(220, 25)
+$lblJarStatus.Size = New-Object System.Drawing.Size(80, 20)
+$lblJarStatus.ForeColor = [System.Drawing.Color]::Red
+$groupFileStatus.Controls.Add($lblJarStatus)
+
+$lblAssetsFile = New-Object System.Windows.Forms.Label
+$lblAssetsFile.Text = "Assets.zip"
+$lblAssetsFile.Location = New-Object System.Drawing.Point(480, 25)
+$lblAssetsFile.Size = New-Object System.Drawing.Size(200, 20)
+$lblAssetsFile.ForeColor = [System.Drawing.Color]::Red
+$groupFileStatus.Controls.Add($lblAssetsFile)
+
+$lblAssetsStatus = New-Object System.Windows.Forms.Label
+$lblAssetsStatus.Text = "[MISSING]"
+$lblAssetsStatus.Location = New-Object System.Drawing.Point(690, 25)
+$lblAssetsStatus.Size = New-Object System.Drawing.Size(80, 20)
+$lblAssetsStatus.ForeColor = [System.Drawing.Color]::Red
+$groupFileStatus.Controls.Add($lblAssetsStatus)
+
+# Row 2: Server/ and mods/
+$lblServerFolder = New-Object System.Windows.Forms.Label
+$lblServerFolder.Text = "Server/"
+$lblServerFolder.Location = New-Object System.Drawing.Point(10, 55)
+$lblServerFolder.Size = New-Object System.Drawing.Size(200, 20)
+$lblServerFolder.ForeColor = [System.Drawing.Color]::Red
+$groupFileStatus.Controls.Add($lblServerFolder)
+
+$lblServerFolderStatus = New-Object System.Windows.Forms.Label
+$lblServerFolderStatus.Text = "[MISSING]"
+$lblServerFolderStatus.Location = New-Object System.Drawing.Point(220, 55)
+$lblServerFolderStatus.Size = New-Object System.Drawing.Size(80, 20)
+$lblServerFolderStatus.ForeColor = [System.Drawing.Color]::Red
+$groupFileStatus.Controls.Add($lblServerFolderStatus)
+
+$lblModsFolder = New-Object System.Windows.Forms.Label
+$lblModsFolder.Text = "mods/"
+$lblModsFolder.Location = New-Object System.Drawing.Point(480, 55)
+$lblModsFolder.Size = New-Object System.Drawing.Size(200, 20)
+$lblModsFolder.ForeColor = [System.Drawing.Color]::Red
+$groupFileStatus.Controls.Add($lblModsFolder)
+
+$lblModsFolderStatus = New-Object System.Windows.Forms.Label
+$lblModsFolderStatus.Text = "[MISSING]"
+$lblModsFolderStatus.Location = New-Object System.Drawing.Point(690, 55)
+$lblModsFolderStatus.Size = New-Object System.Drawing.Size(80, 20)
+$lblModsFolderStatus.ForeColor = [System.Drawing.Color]::Red
+$groupFileStatus.Controls.Add($lblModsFolderStatus)
+
+# Row 3: config.json and Overall Status
+$lblConfigFile = New-Object System.Windows.Forms.Label
+$lblConfigFile.Text = "config.json"
+$lblConfigFile.Location = New-Object System.Drawing.Point(10, 85)
+$lblConfigFile.Size = New-Object System.Drawing.Size(200, 20)
+$lblConfigFile.ForeColor = [System.Drawing.Color]::Red
+$groupFileStatus.Controls.Add($lblConfigFile)
+
+$lblConfigStatus = New-Object System.Windows.Forms.Label
+$lblConfigStatus.Text = "[MISSING]"
+$lblConfigStatus.Location = New-Object System.Drawing.Point(220, 85)
+$lblConfigStatus.Size = New-Object System.Drawing.Size(80, 20)
+$lblConfigStatus.ForeColor = [System.Drawing.Color]::Red
+$groupFileStatus.Controls.Add($lblConfigStatus)
+
+$lblOverallStatus = New-Object System.Windows.Forms.Label
+$lblOverallStatus.Text = "[WARN] Missing required files"
+$lblOverallStatus.Location = New-Object System.Drawing.Point(480, 85)
+$lblOverallStatus.Size = New-Object System.Drawing.Size(250, 20)
+$lblOverallStatus.ForeColor = [System.Drawing.Color]::Orange
+$groupFileStatus.Controls.Add($lblOverallStatus)
+
+# =====================
+# GROUP 5: UPDATE LOG SECTION (FULL WIDTH) - PERFECT MIDDLE GROUND
+# =====================
+
+$groupUpdateLog = New-Object System.Windows.Forms.GroupBox
+$groupUpdateLog.Text = "Update Log"
+$groupUpdateLog.Location = New-Object System.Drawing.Point(10, 370)
+$groupUpdateLog.Size = New-Object System.Drawing.Size(950, 220)
+$groupUpdateLog.ForeColor = $colorText
+$tabMaintenance.Controls.Add($groupUpdateLog)
 
 $txtUpdateLog = New-Object System.Windows.Forms.TextBox
 $txtUpdateLog.Multiline = $true
@@ -5526,119 +5648,34 @@ $txtUpdateLog.ReadOnly = $true
 $txtUpdateLog.BackColor = $colorConsoleBack
 $txtUpdateLog.ForeColor = $colorConsoleText
 $txtUpdateLog.Font = New-Object System.Drawing.Font("Consolas", 9)
-$txtUpdateLog.Location = New-Object System.Drawing.Point(10, 360)
-$txtUpdateLog.Size = New-Object System.Drawing.Size(960, 230)
-$tabMaintenance.Controls.Add($txtUpdateLog)
+$txtUpdateLog.Location = New-Object System.Drawing.Point(10, 25)
+$txtUpdateLog.Size = New-Object System.Drawing.Size(930, 155)
+$groupUpdateLog.Controls.Add($txtUpdateLog)
 
-# =====================
-# SERVER IP SECTION
-# =====================
+# Log Action Buttons (Bottom of Log Group)
+$btnClearUpdateLog = New-Object System.Windows.Forms.Button
+$btnClearUpdateLog.Text = "Clear"
+$btnClearUpdateLog.Location = New-Object System.Drawing.Point(10, 185)
+$btnClearUpdateLog.Size = New-Object System.Drawing.Size(100, 25)
+Style-Button $btnClearUpdateLog
+$btnClearUpdateLog.Add_Click({ Clear-UpdateLog })
+$groupUpdateLog.Controls.Add($btnClearUpdateLog)
 
-$lblServerIPTitle = New-Object System.Windows.Forms.Label
-$lblServerIPTitle.Text = "Server IP Address:"
-$lblServerIPTitle.Location = New-Object System.Drawing.Point(780, 50)
-$lblServerIPTitle.Size = New-Object System.Drawing.Size(150, 20)
-$lblServerIPTitle.ForeColor = $colorText
-$lblServerIPTitle.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$tabMaintenance.Controls.Add($lblServerIPTitle)
+$btnSaveUpdateLog = New-Object System.Windows.Forms.Button
+$btnSaveUpdateLog.Text = "Save to File"
+$btnSaveUpdateLog.Location = New-Object System.Drawing.Point(120, 185)
+$btnSaveUpdateLog.Size = New-Object System.Drawing.Size(100, 25)
+Style-Button $btnSaveUpdateLog
+$btnSaveUpdateLog.Add_Click({ Save-UpdateLogToFile })
+$groupUpdateLog.Controls.Add($btnSaveUpdateLog)
 
-$btnCopyServerIP = New-Object System.Windows.Forms.Button
-$btnCopyServerIP.Text = "Copy Server IP"
-$btnCopyServerIP.Location = New-Object System.Drawing.Point(780, 75)
-$btnCopyServerIP.Size = New-Object System.Drawing.Size(180, 40)
-$btnCopyServerIP.BackColor = [System.Drawing.Color]::FromArgb(50, 150, 50)
-$btnCopyServerIP.ForeColor = [System.Drawing.Color]::White
-$btnCopyServerIP.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
-$btnCopyServerIP.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$btnCopyServerIP.Add_Click({ Copy-ServerIP })
-$tabMaintenance.Controls.Add($btnCopyServerIP)
-
-# =====================
-# CHECK FILES SECTION - NOW BETWEEN DOWNLOADER UTILS AND LOG BUTTONS
-# =====================
-
-$lblCheckFilesTitle = New-Object System.Windows.Forms.Label
-$lblCheckFilesTitle.Text = "Check Required Files:"
-$lblCheckFilesTitle.Location = New-Object System.Drawing.Point(10, 170)  # WAS 520
-$lblCheckFilesTitle.Size = New-Object System.Drawing.Size(200, 20)
-$lblCheckFilesTitle.ForeColor = $colorText
-$lblCheckFilesTitle.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$tabMaintenance.Controls.Add($lblCheckFilesTitle)
-
-$lblJarFile = New-Object System.Windows.Forms.Label
-$lblJarFile.Text = "HytaleServer.jar - Missing"
-$lblJarFile.Location = New-Object System.Drawing.Point(10, 200)  # WAS 550
-$lblJarFile.ForeColor = [System.Drawing.Color]::Red
-$tabMaintenance.Controls.Add($lblJarFile)
-
-$lblJarStatus = New-Object System.Windows.Forms.Label
-$lblJarStatus.Text = "[!!]"
-$lblJarStatus.Location = New-Object System.Drawing.Point(400, 200)  # WAS 550
-$lblJarStatus.ForeColor = [System.Drawing.Color]::Red
-$tabMaintenance.Controls.Add($lblJarStatus)
-
-$lblAssetsFile = New-Object System.Windows.Forms.Label
-$lblAssetsFile.Text = "Assets.zip - Missing"
-$lblAssetsFile.Location = New-Object System.Drawing.Point(10, 230)  # WAS 580
-$lblAssetsFile.ForeColor = [System.Drawing.Color]::Red
-$tabMaintenance.Controls.Add($lblAssetsFile)
-
-$lblAssetsStatus = New-Object System.Windows.Forms.Label
-$lblAssetsStatus.Text = "[!!]"
-$lblAssetsStatus.Location = New-Object System.Drawing.Point(400, 230)  # WAS 580
-$lblAssetsStatus.ForeColor = [System.Drawing.Color]::Red
-$tabMaintenance.Controls.Add($lblAssetsStatus)
-
-$lblServerFolder = New-Object System.Windows.Forms.Label
-$lblServerFolder.Text = "Server/ - Missing"
-$lblServerFolder.Location = New-Object System.Drawing.Point(10, 260)  # WAS 610
-$lblServerFolder.ForeColor = [System.Drawing.Color]::Red
-$tabMaintenance.Controls.Add($lblServerFolder)
-
-$lblServerFolderStatus = New-Object System.Windows.Forms.Label
-$lblServerFolderStatus.Text = "[!!]"
-$lblServerFolderStatus.Location = New-Object System.Drawing.Point(400, 260)  # WAS 610
-$lblServerFolderStatus.ForeColor = [System.Drawing.Color]::Red
-$tabMaintenance.Controls.Add($lblServerFolderStatus)
-
-$lblModsFolder = New-Object System.Windows.Forms.Label
-$lblModsFolder.Text = "mods/ - Missing"
-$lblModsFolder.Location = New-Object System.Drawing.Point(10, 290)  # WAS 640
-$lblModsFolder.ForeColor = [System.Drawing.Color]::Red
-$tabMaintenance.Controls.Add($lblModsFolder)
-
-$lblModsFolderStatus = New-Object System.Windows.Forms.Label
-$lblModsFolderStatus.Text = "[!!]"
-$lblModsFolderStatus.Location = New-Object System.Drawing.Point(400, 290)  # WAS 640
-$lblModsFolderStatus.ForeColor = [System.Drawing.Color]::Red
-$tabMaintenance.Controls.Add($lblModsFolderStatus)
-
-$lblConfigFile = New-Object System.Windows.Forms.Label
-$lblConfigFile.Text = "config.json - Missing"
-$lblConfigFile.Location = New-Object System.Drawing.Point(10, 320)  # WAS 670
-$lblConfigFile.ForeColor = [System.Drawing.Color]::Red
-$tabMaintenance.Controls.Add($lblConfigFile)
-
-$lblConfigStatus = New-Object System.Windows.Forms.Label
-$lblConfigStatus.Text = "[!!]"
-$lblConfigStatus.Location = New-Object System.Drawing.Point(400, 320)  # WAS 670
-$lblConfigStatus.ForeColor = [System.Drawing.Color]::Red
-$tabMaintenance.Controls.Add($lblConfigStatus)
-
-# Check Files button - moved to align with new positions
-$btnCheckFiles = New-Object System.Windows.Forms.Button
-$btnCheckFiles.Text = "Check Files"
-$btnCheckFiles.Location = New-Object System.Drawing.Point(700, 170)  # WAS 520
-Style-Button $btnCheckFiles
-$btnCheckFiles.Add_Click({ Check-ServerFiles })
-$tabMaintenance.Controls.Add($btnCheckFiles)
-
-# Overall status label - moved with button
-$lblOverallStatus = New-Object System.Windows.Forms.Label
-$lblOverallStatus.Text = "[WARN] Missing required files"
-$lblOverallStatus.Location = New-Object System.Drawing.Point(700, 210)  # WAS 560
-$lblOverallStatus.ForeColor = [System.Drawing.Color]::Orange
-$tabMaintenance.Controls.Add($lblOverallStatus)
+$btnCopyUpdateLog = New-Object System.Windows.Forms.Button
+$btnCopyUpdateLog.Text = "Copy to Clipboard"
+$btnCopyUpdateLog.Location = New-Object System.Drawing.Point(230, 185)
+$btnCopyUpdateLog.Size = New-Object System.Drawing.Size(120, 25)
+Style-Button $btnCopyUpdateLog
+$btnCopyUpdateLog.Add_Click({ Copy-UpdateLogToClipboard })
+$groupUpdateLog.Controls.Add($btnCopyUpdateLog)
 
 # =====================
 # MOD MANAGER TAB (REORGANIZED FOR 720P - 2 COLUMN LAYOUT)
